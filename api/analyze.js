@@ -1,13 +1,14 @@
 const cheerio = require('cheerio');
 const fetch = require('node-fetch');
 
-// CONFIGURACIÓN DE MODELOS
+// CONFIGURACIÓN
 const API_VERSION = "v1beta";
+// Intentamos con el modelo estándar. Si falla, el log nos dirá cuál usar.
 const EMBEDDING_MODEL = "text-embedding-004"; 
 const GENERATIVE_MODEL = "gemini-1.5-flash";   
 
 export default async function handler(req, res) {
-    // 1. Headers de Seguridad y CORS
+    // CORS y Headers
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -20,98 +21,99 @@ export default async function handler(req, res) {
     const scraperKey = process.env.SCRAPERAPI_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
 
-    // Validación de Keys
-    if (!scraperKey) return res.status(500).json({ error: 'Falta SCRAPERAPI_KEY' });
-    if (!geminiKey) return res.status(500).json({ error: 'Falta GEMINI_API_KEY' });
+    if (!scraperKey || !geminiKey) return res.status(500).json({ error: 'Faltan API Keys' });
 
     try {
-        // --- PASO 1: SCRAPING DE METADATOS ---
-        // console.log(`[DEBUG] Conectando a ScraperAPI para: ${url}`);
+        // --- PASO 1: SCRAPING (Tu lógica optimizada) ---
         const scraperUrl = `http://api.scraperapi.com?api_key=${scraperKey}&url=${encodeURIComponent(url)}&render=false`;
         
         const scrapeRes = await fetch(scraperUrl);
-        if (!scrapeRes.ok) throw new Error(`ScraperAPI falló con status: ${scrapeRes.status}`);
+        if (!scrapeRes.ok) throw new Error(`ScraperAPI status: ${scrapeRes.status}`);
         
         const html = await scrapeRes.text();
         const $ = cheerio.load(html);
 
-        // Extracción: Título, Meta Descripción y H1
         const title = $('title').text().trim() || 'Sin título';
         const description = $('meta[name="description"]').attr('content') || '';
         const h1 = $('h1').first().text().trim() || $('h2').first().text().trim() || '';
 
-        // Texto limpio para la IA
         const textToAnalyze = `Title: ${title}\nDesc: ${description}\nHeader: ${h1}`.trim();
 
-        // Si no hay texto útil, avisamos
         if (textToAnalyze.length < 10) {
-             return res.status(200).json({ success: false, error: "Web vacía (Posible bloqueo JS)" });
+             return res.status(200).json({ success: false, error: "Web vacía" });
         }
 
-        // --- PASO 2: LLAMADA A GOOGLE (Con reporte de errores detallado) ---
-        
+        // --- PASO 2: CONEXIÓN CON GOOGLE ---
+
+        // Función para listar modelos si algo falla (Autodiagnóstico)
+        const listAvailableModels = async () => {
+            try {
+                const listUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models?key=${geminiKey}`;
+                const r = await fetch(listUrl);
+                const d = await r.json();
+                if(d.models) {
+                    // Filtramos solo los que sirven para embedding
+                    const embeds = d.models.filter(m => m.name.includes('embed'));
+                    console.log("--- MODELOS DISPONIBLES PARA TU KEY ---");
+                    console.log(embeds.map(m => m.name).join(', '));
+                    console.log("---------------------------------------");
+                }
+            } catch (e) { console.error("No se pudo listar modelos:", e.message); }
+        };
+
         const callGoogle = async (endpoint, body) => {
             const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
-            
             const data = await response.json();
-            
-            // AQUÍ ESTÁ EL CAMBIO CLAVE:
-            // Si falla, devolvemos el mensaje EXACTO de Google
             if (!response.ok) {
-                console.error("[GOOGLE ERROR DETAIL]:", JSON.stringify(data)); // Esto sale en los logs de Vercel
-                const errMsg = data.error ? data.error.message : response.statusText;
-                throw new Error(`Google dice: ${errMsg} (Code: ${data.error?.code || response.status})`);
+                // Si falla, intentamos ver qué modelos hay disponibles antes de lanzar el error
+                await listAvailableModels();
+                const msg = data.error ? data.error.message : response.statusText;
+                throw new Error(`Google API (${data.error?.code}): ${msg}`);
             }
             return data;
         };
 
-        // A) VECTOR (Embedding)
+        // A) VECTOR
         let vector = [];
         const embedUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${EMBEDDING_MODEL}:embedContent?key=${geminiKey}`;
         
         try {
+            // CORRECCIÓN PRINCIPAL: 
+            // NO enviamos 'model' dentro del body, solo 'content'.
+            // A veces enviarlo duplicado causa el error 404.
             const data = await callGoogle(embedUrl, {
-                model: `models/${EMBEDDING_MODEL}`,
                 content: { parts: [{ text: textToAnalyze }] }
             });
             vector = data.embedding.values;
         } catch (e) {
-            // Pasamos el error exacto al frontend
+            console.error(e.message);
             throw new Error(e.message);
         }
 
-        // B) RESUMEN (Opcional)
+        // B) RESUMEN
         let aiData = { topic: "General", summary: title };
         try {
             const genUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${GENERATIVE_MODEL}:generateContent?key=${geminiKey}`;
-            const prompt = `Analiza: ${textToAnalyze}. JSON: {"topic": "Tema (2 palabras)", "summary": "Resumen (1 linea)"}`;
-
+            const prompt = `Analiza: ${textToAnalyze}. JSON: {"topic": "Tema (2 palabras)", "summary": "Resumen corto"}`;
             const data = await callGoogle(genUrl, { contents: [{ parts: [{ text: prompt }] }] });
+            
             let raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
             if (raw) {
                 raw = raw.replace(/```json|```/g, '').trim();
                 aiData = JSON.parse(raw);
             }
-        } catch (e) {
-            console.warn("Error menor generando resumen:", e.message);
-        }
+        } catch (e) { /* Silencioso */ }
 
         return res.status(200).json({
             success: true,
-            data: {
-                url,
-                vector,
-                topic: aiData.topic,
-                summary: aiData.summary
-            }
+            data: { url, vector, topic: aiData.topic, summary: aiData.summary }
         });
 
     } catch (error) {
-        // Este log es el que verás en la consola de Vercel
         console.error("SERVER ERROR:", error.message);
         return res.status(500).json({ success: false, error: error.message });
     }
