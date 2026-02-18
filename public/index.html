@@ -7,115 +7,114 @@
     
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'neon-pink': '#ff00ff',
+                        'neon-blue': '#00ffff',
+                        'dark-bg': '#050505',
+                        'panel-bg': '#0a0a0a'
+                    },
+                    fontFamily: {
+                        sans: ['Montserrat', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace'],
+                    }
+                }
+            }
+        }
+    </script>
     <style>
-        body { font-family: 'Montserrat', sans-serif; background-color: #050505; color: #e5e5e5; }
-        .font-mono { font-family: 'Fira Code', monospace; }
+        body { background-color: #050505; color: #e5e5e5; }
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: #111; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
-        /* Animaciones */
-        .fade-in { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden">
 
-    <header class="h-16 border-b border-gray-800 bg-[#0a0a0a] flex items-center px-6 justify-between z-20">
+    <header class="h-16 border-b border-gray-800 bg-panel-bg flex items-center px-6 justify-between z-10">
         <div class="flex items-center gap-2 text-xl font-bold tracking-tighter">
-            <i class="ph-fill ph-brain text-green-400"></i> BRANDRANK<span class="text-gray-600">.AI</span>
+            <i class="ph-fill ph-brain text-neon-pink"></i> BRANDRANK<span class="text-gray-600">.AI</span>
         </div>
-        <div class="text-xs font-mono text-gray-500">v2.1 Stable</div>
+        <div class="flex gap-4 text-sm font-medium text-gray-400">
+            <div class="flex items-center gap-2"><div class="w-2 h-2 rounded-full bg-green-500"></div> System Online</div>
+        </div>
     </header>
 
     <div class="flex flex-1 overflow-hidden relative">
-        
-        <aside class="w-[380px] bg-[#0c0c0c] border-r border-gray-800 flex flex-col z-10 shadow-xl">
-            <div class="p-6 space-y-6 overflow-y-auto custom-scroll flex-1">
-                
+        <aside class="w-80 bg-panel-bg border-r border-gray-800 flex flex-col z-20 shadow-xl">
+            <div class="p-6 space-y-8">
                 <div>
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">1. Objetivo</label>
-                    <div class="flex gap-2 relative">
-                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <i class="ph ph-globe text-gray-500"></i>
-                        </div>
+                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">Target Domain</label>
+                    <div class="relative">
                         <input type="text" id="domain-input" placeholder="ejemplo.com" 
-                            class="w-full bg-[#151515] border border-gray-700 rounded pl-10 pr-3 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition text-white font-mono">
-                        <button id="search-btn" class="bg-gray-800 hover:bg-gray-700 text-white px-4 rounded border border-gray-700 transition">
-                            <i class="ph-bold ph-magnifying-glass"></i>
-                        </button>
+                            class="w-full bg-[#111] border border-gray-700 rounded px-4 py-3 text-sm focus:border-neon-pink focus:ring-1 focus:ring-neon-pink outline-none transition text-white font-mono">
+                        <i class="ph-bold ph-globe absolute right-3 top-3 text-gray-600"></i>
                     </div>
                 </div>
 
-                <div id="selection-area" class="hidden fade-in space-y-3">
-                    <div class="flex justify-between items-end border-b border-gray-800 pb-2">
-                        <label class="text-xs font-bold text-gray-500 uppercase">2. Selección (<span id="url-count">0</span>)</label>
-                        <button id="toggle-all-btn" class="text-[10px] text-blue-400 hover:text-white uppercase font-bold tracking-wider">Select All</button>
-                    </div>
-                    
-                    <div id="url-list" class="bg-[#111] border border-gray-800 rounded h-48 overflow-y-auto p-2 space-y-1 custom-scroll">
-                        </div>
-
-                    <div>
-                        <label class="text-[10px] font-bold text-gray-600 uppercase mb-1 block">Añadir Manualmente (1 por línea)</label>
-                        <textarea id="manual-urls" placeholder="https://..." 
-                            class="w-full bg-[#151515] border border-gray-700 rounded p-2 text-xs h-20 focus:border-green-500 outline-none font-mono text-gray-400 resize-none"></textarea>
-                    </div>
-                </div>
-
-            </div>
-
-            <div class="p-6 border-t border-gray-800 bg-[#0a0a0a]">
-                <button id="start-btn" disabled 
-                    class="w-full py-4 bg-gray-800 text-gray-500 font-bold rounded cursor-not-allowed transition flex items-center justify-center gap-2 tracking-wide text-sm shadow-lg">
-                    <i class="ph-fill ph-play-circle text-lg"></i> ESPERANDO INPUT
+                <button id="start-btn" class="w-full py-4 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white font-bold rounded shadow-lg shadow-pink-900/20 transition flex items-center justify-center gap-2 tracking-wide text-sm">
+                    <i class="ph-fill ph-rocket-launch text-lg"></i> INICIAR AUDITORÍA
                 </button>
+
+                <div class="grid grid-cols-2 gap-3 mt-4">
+                    <div class="bg-[#111] border border-gray-800 p-3 rounded">
+                        <div class="text-[10px] text-gray-500 uppercase">Focus Ratio</div>
+                        <div id="metric-focus" class="text-xl font-mono text-neon-pink">0%</div>
+                    </div>
+                    <div class="bg-[#111] border border-gray-800 p-3 rounded">
+                        <div class="text-[10px] text-gray-500 uppercase">Site Ratio</div>
+                        <div id="metric-ratio" class="text-xl font-mono text-neon-blue">0%</div>
+                    </div>
+                </div>
             </div>
         </aside>
 
-        <main class="flex-1 flex flex-col bg-black relative">
-            
-            <div class="h-[55%] p-6 border-b border-gray-800 relative bg-[#050505]">
+        <main class="flex-1 flex flex-col bg-dark-bg relative">
+            <div class="h-[60%] p-6 relative border-b border-gray-800">
                 <canvas id="topicalGraph"></canvas>
-                
-                <div class="absolute top-6 right-6 flex flex-col gap-2">
-                    <div class="bg-black/90 backdrop-blur border border-gray-800 p-4 rounded shadow-2xl min-w-[140px]">
-                        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Topical Focus</div>
-                        <div id="metric-focus" class="text-3xl font-mono text-green-400 font-bold tracking-tighter">--</div>
-                    </div>
-                    <div class="bg-black/90 backdrop-blur border border-gray-800 p-4 rounded shadow-2xl min-w-[140px]">
-                        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Site Ratio</div>
-                        <div id="metric-ratio" class="text-3xl font-mono text-blue-400 font-bold tracking-tighter">--</div>
-                    </div>
-                </div>
             </div>
 
-            <div class="h-[45%] flex flex-col bg-[#080808] pb-48"> <div class="px-6 py-3 border-b border-gray-800 flex text-xs font-bold text-gray-500 uppercase tracking-wider bg-[#0c0c0c]">
-                    <div class="w-1/2">URL Endpoint</div>
-                    <div class="w-1/4">Detected Topic</div>
-                    <div class="w-1/4 text-right">Semantic Score</div>
-                </div>
-                <div id="results-table-body" class="flex-1 overflow-y-auto custom-scroll p-0">
+            <div class="h-[40%] bg-panel-bg flex flex-col pb-48"> <section class="flex-1 flex flex-col overflow-hidden">
+                    <div class="px-6 py-3 border-b border-gray-800 bg-[#0f0f0f] flex justify-between items-center">
+                        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider"><i class="ph-bold ph-list-dashes mr-1"></i> URL Analysis</h3>
                     </div>
+                    <div class="flex-1 overflow-auto custom-scroll p-0 relative">
+                        <div class="absolute inset-0">
+                            <table class="w-full text-left border-collapse">
+                                <thead class="bg-[#111] sticky top-0 z-10 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                    <tr>
+                                        <th class="p-3 border-b border-gray-800 pl-6">URL Endpoint</th>
+                                        <th class="p-3 border-b border-gray-800">Topic</th>
+                                        <th class="p-3 border-b border-gray-800">Similitud</th>
+                                        <th class="p-3 border-b border-gray-800">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="results-table-body" class="font-mono text-gray-300 text-sm"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
             </div>
-
         </main>
     </div>
 
-    <footer id="console-footer" class="fixed bottom-0 left-0 w-full bg-[#050505] border-t border-gray-800 z-50 shadow-2xl flex flex-col h-48 transition-all duration-200">
-        <div id="drag-handle" class="w-full h-8 bg-[#111] border-b border-gray-800 flex items-center justify-between px-4 cursor-row-resize select-none hover:bg-[#161616]">
-            <div class="flex items-center gap-2 text-xs text-gray-400 font-mono font-bold">
-                <i class="ph-fill ph-terminal-window text-green-500"></i> SYSTEM LOGS
+    <footer id="console-footer" class="fixed bottom-0 left-0 w-full bg-[#050505] border-t border-gray-800 z-50 shadow-2xl flex flex-col h-48 max-h-[80vh] transition-all duration-200">
+        <div id="drag-handle" class="w-full h-8 bg-[#111] border-b border-gray-800 flex items-center justify-between px-6 cursor-row-resize select-none group hover:bg-[#161616]">
+            <div class="flex items-center gap-3 text-xs text-gray-300 font-mono font-bold group-hover:text-white">
+                <i class="ph-fill ph-terminal-window text-neon-pink"></i> SYSTEM LOGS
             </div>
-            <div class="flex gap-2">
-                <button onclick="document.getElementById('terminal-body').innerHTML=''" class="text-gray-500 hover:text-white"><i class="ph ph-trash"></i></button>
+            <button onclick="document.getElementById('console-output').innerHTML=''" class="text-gray-400 hover:text-white p-2"><i class="ph ph-trash"></i></button>
+        </div>
+        <div id="console-output" class="flex-grow p-4 font-mono text-xs leading-relaxed overflow-y-auto custom-scroll text-green-400 bg-black/95">
             </div>
-        </div>
-        <div id="terminal-body" class="flex-grow p-4 font-mono text-xs leading-relaxed overflow-y-auto custom-scroll text-gray-300 bg-black/95">
-            <div class="opacity-50">> System initialized. Waiting for user input...</div>
-        </div>
     </footer>
 
     <script type="module" src="script.js"></script>

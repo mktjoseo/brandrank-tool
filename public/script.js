@@ -1,191 +1,104 @@
-// ==========================================
-// CONFIGURACIÓN & ESTADO
-// ==========================================
+// CONFIGURACIÓN
 let state = {
-    discoveredUrls: [],
+    domain: '',
+    urls: [],
     vectors: [],
-    centroid: null,
-    isAnalyzing: false
+    centroid: null
 };
 
+// Referencias al DOM (Tu diseño original)
 const UI = {
     input: document.getElementById('domain-input'),
-    btnSearch: document.getElementById('search-btn'),
-    areaSelection: document.getElementById('selection-area'),
-    listContainer: document.getElementById('url-list'),
-    manualInput: document.getElementById('manual-urls'),
-    btnToggle: document.getElementById('toggle-all-btn'),
     btnStart: document.getElementById('start-btn'),
-    terminal: document.getElementById('terminal-body'), // Tu footer original
+    console: document.getElementById('console-output'),
     table: document.getElementById('results-table-body'),
-    countLabel: document.getElementById('url-count')
+    focusMetric: document.getElementById('metric-focus'),
+    ratioMetric: document.getElementById('metric-ratio')
 };
 
-// ==========================================
-// LOGGER (Escribe en tu footer estilo terminal)
-// ==========================================
+// Logger adaptado a tu consola
 function log(msg, type = 'info') {
-    if (!UI.terminal) return;
-    
+    if (!UI.console) return;
     const div = document.createElement('div');
     const time = new Date().toLocaleTimeString('es-ES', { hour12: false });
     
-    // Estilos según tipo de mensaje
-    let color = 'text-gray-400';
-    let prefix = '➜';
+    let color = 'text-green-400';
+    if (type === 'error') color = 'text-red-500 font-bold';
+    if (type === 'warn') color = 'text-yellow-400';
     
-    if (type === 'error') { color = 'text-red-500 font-bold'; prefix = '✖'; }
-    if (type === 'success') { color = 'text-green-400'; prefix = '✔'; }
-    if (type === 'process') { color = 'text-blue-400'; prefix = '⚙'; }
-    if (type === 'warn') { color = 'text-yellow-500'; prefix = '⚠'; }
-
-    div.className = "mb-1 border-l-2 border-transparent pl-2 hover:border-gray-700 transition-colors";
-    div.innerHTML = `
-        <span class="opacity-30 text-[10px] mr-2 font-normal">[${time}]</span>
-        <span class="${color}">${prefix} ${msg}</span>
-    `;
+    div.innerHTML = `<span class="opacity-50 mr-2">[${time}]</span><span class="${color}">${msg}</span>`;
+    div.className = "mb-1 border-b border-gray-900/50 pb-1";
     
-    UI.terminal.appendChild(div);
-    UI.terminal.scrollTop = UI.terminal.scrollHeight;
+    UI.console.appendChild(div);
+    UI.console.scrollTop = UI.console.scrollHeight;
 }
 
-// ==========================================
-// 1. FASE DE BÚSQUEDA
-// ==========================================
+// BOTÓN DE INICIO
+if (UI.btnStart) {
+    UI.btnStart.addEventListener('click', startAudit);
+}
 
-// Evento Enter y Click
-UI.input.addEventListener('keypress', (e) => { if (e.key === 'Enter') handleSearch(); });
-UI.btnSearch.addEventListener('click', handleSearch);
-
-async function handleSearch() {
+async function startAudit() {
     const domain = UI.input.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
-    if (!domain) return log("Error: Ingresa un dominio válido.", "error");
+    if (!domain) return log("Introduce un dominio válido", "error");
 
-    log(`Iniciando escaneo de sitemap/index para: ${domain}`, "process");
-    
-    // UI Loading state
-    UI.btnSearch.innerHTML = `<i class="ph ph-spinner animate-spin"></i>`;
-    
+    // Reset
+    state.domain = domain;
+    state.vectors = [];
+    state.urls = [];
+    state.centroid = null;
+    UI.table.innerHTML = '';
+    updateChart([]);
+
+    UI.btnStart.disabled = true;
+    UI.btnStart.innerText = "AUDITANDO...";
+
     try {
+        // 1. BUSCAR URLS
+        log(`🔎 Escaneando Google para: ${domain}...`);
         const res = await fetch(`/api/search?domain=${domain}`);
-        if (!res.ok) throw new Error("Error de conexión con la API de búsqueda.");
+        if (!res.ok) throw new Error("Error conectando con API de búsqueda");
         
         const urls = await res.json();
-        state.discoveredUrls = urls || [];
-
-        if (state.discoveredUrls.length === 0) {
-            log("Google no devolvió resultados indexados. Usa el modo manual.", "warn");
-        } else {
-            log(`Éxito: ${state.discoveredUrls.length} URLs encontradas.`, "success");
+        
+        if (!urls || urls.length === 0) {
+            throw new Error("Google no encontró URLs indexadas. Intenta otro dominio.");
         }
 
-        renderSelectionList();
-        
-        // Mostrar área de selección con animación
-        UI.areaSelection.classList.remove('hidden');
-        enableStartButton();
+        log(`✅ Encontradas ${urls.length} URLs. Iniciando análisis...`);
+        state.urls = urls;
+
+        // 2. PROCESAR EN LOTES (Batching)
+        // Procesamos de 3 en 3 para velocidad y estabilidad
+        const BATCH_SIZE = 3;
+        for (let i = 0; i < urls.length; i += BATCH_SIZE) {
+            const batch = urls.slice(i, i + BATCH_SIZE);
+            log(`⚙ Procesando bloque ${Math.floor(i/BATCH_SIZE)+1} (${batch.length} URLs)...`);
+            
+            await Promise.all(batch.map(analyzeUrl));
+            
+            // Recalcular métricas tras cada bloque
+            if (state.vectors.length > 0) calculateMetrics();
+            
+            // Pausa técnica
+            await new Promise(r => setTimeout(r, 1000));
+        }
+
+        log("🚀 Auditoría Finalizada.", "success");
 
     } catch (e) {
         log(e.message, "error");
     } finally {
-        UI.btnSearch.innerHTML = `<i class="ph-bold ph-magnifying-glass"></i>`;
+        UI.btnStart.disabled = false;
+        UI.btnStart.innerText = "INICIAR AUDITORÍA";
     }
 }
 
-function renderSelectionList() {
-    UI.listContainer.innerHTML = '';
-    state.discoveredUrls.forEach(url => {
-        const div = document.createElement('label');
-        div.className = "flex items-center gap-3 p-2 rounded hover:bg-white/5 cursor-pointer text-xs font-mono text-gray-400 transition group";
-        div.innerHTML = `
-            <input type="checkbox" value="${url}" checked class="url-checkbox accent-green-500 w-4 h-4 rounded border-gray-700 bg-[#0a0a0a]">
-            <span class="truncate group-hover:text-white transition">${url.replace(/^https?:\/\//, '')}</span>
-        `;
-        UI.listContainer.appendChild(div);
-    });
-    updateCount();
-    
-    // Listener para actualizar contador al hacer click en checkbox
-    document.querySelectorAll('.url-checkbox').forEach(cb => {
-        cb.addEventListener('change', updateCount);
-    });
-}
-
-function updateCount() {
-    const checked = document.querySelectorAll('.url-checkbox:checked').length;
-    UI.countLabel.innerText = checked;
-}
-
-// Toggle Select All
-let allSelected = true;
-UI.btnToggle.addEventListener('click', () => {
-    const checkboxes = document.querySelectorAll('.url-checkbox');
-    allSelected = !allSelected;
-    checkboxes.forEach(cb => cb.checked = allSelected);
-    UI.btnToggle.innerText = allSelected ? "DESELECT ALL" : "SELECT ALL";
-    updateCount();
-});
-
-function enableStartButton() {
-    UI.btnStart.disabled = false;
-    UI.btnStart.innerHTML = `<i class="ph-fill ph-play"></i> INICIAR AUDITORÍA`;
-    UI.btnStart.className = "w-full py-4 bg-green-600 hover:bg-green-500 text-black font-bold rounded shadow-[0_0_20px_rgba(74,222,128,0.2)] transition flex items-center justify-center gap-2 tracking-wide text-sm";
-}
-
-// ==========================================
-// 2. FASE DE ANÁLISIS (Batching)
-// ==========================================
-
-UI.btnStart.addEventListener('click', async () => {
-    // Recopilar URLs
-    const checkboxes = document.querySelectorAll('.url-checkbox:checked');
-    const manualText = UI.manualInput.value.trim();
-    let finalUrls = Array.from(checkboxes).map(cb => cb.value);
-    
-    if (manualText) {
-        const manuals = manualText.split('\n').map(u => u.trim()).filter(u => u.length > 5);
-        finalUrls = [...finalUrls, ...manuals];
-    }
-    finalUrls = [...new Set(finalUrls)]; // Eliminar duplicados
-
-    if (finalUrls.length === 0) return log("Selecciona al menos 1 URL para comenzar.", "error");
-
-    // UI Reset
-    state.vectors = [];
-    state.centroid = null;
-    state.isAnalyzing = true;
-    UI.table.innerHTML = '';
-    UI.btnStart.disabled = true;
-    UI.btnStart.innerHTML = `<i class="ph ph-spinner animate-spin"></i> PROCESANDO...`;
-    
-    log(`Iniciando análisis semántico de ${finalUrls.length} páginas.`, "process");
-
-    // Bucle en Lotes (Batching)
-    const BATCH_SIZE = 2; // Seguro para API gratuita
-    
-    for (let i = 0; i < finalUrls.length; i += BATCH_SIZE) {
-        const batch = finalUrls.slice(i, i + BATCH_SIZE);
-        log(`Procesando lote ${Math.floor(i/BATCH_SIZE)+1} de ${Math.ceil(finalUrls.length/BATCH_SIZE)}...`, "info");
-        
-        await Promise.all(batch.map(processSingleUrl));
-        
-        // Pausa de seguridad para evitar Rate Limit
-        await new Promise(r => setTimeout(r, 1000)); 
-
-        if (state.vectors.length > 0) calculateMetrics();
-    }
-
-    UI.btnStart.disabled = false;
-    UI.btnStart.innerText = "AUDITORÍA COMPLETADA";
-    UI.btnStart.className = "w-full py-4 bg-gray-800 text-white font-bold rounded transition flex items-center justify-center gap-2 text-sm";
-    log("Proceso finalizado. Gráfico actualizado.", "success");
-});
-
-async function processSingleUrl(url) {
+async function analyzeUrl(url) {
     try {
         const res = await fetch('/api/analyze', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url })
         });
         const data = await res.json();
@@ -198,39 +111,27 @@ async function processSingleUrl(url) {
                 sim: 0
             };
             state.vectors.push(item);
-            addRowToTable(item);
+            addTableResult(item);
+            log(`  > Analizado: ${cleanUrl(url)}`);
         } else {
-            log(`Error en ${url}: ${data.error}`, "warn");
+            log(`  X Fallo en: ${cleanUrl(url)}`, "warn");
         }
     } catch (e) {
-        log(`Fallo de red analizando ${url}`, "error");
+        log(`  X Error red: ${cleanUrl(url)}`, "error");
     }
 }
 
-// ==========================================
-// 3. VISUALIZACIÓN & LÓGICA MATEMÁTICA
-// ==========================================
-
-function addRowToTable(item) {
-    const row = document.createElement('div');
-    row.id = `row-${state.vectors.length-1}`;
-    row.className = "flex items-center border-b border-gray-800 py-3 px-6 hover:bg-white/5 transition";
+// UI Y CÁLCULOS
+function addTableResult(item) {
+    const row = document.createElement('tr');
+    row.className = "hover:bg-white/5 transition border-b border-gray-800";
     row.innerHTML = `
-        <div class="w-1/2 truncate pr-4 text-gray-300 font-mono text-xs" title="${item.url}">
-            ${item.url.replace(/^https?:\/\//,'')}
-        </div>
-        <div class="w-1/4">
-            <span class="bg-gray-800 text-gray-400 px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wider">
-                ${item.topic}
-            </span>
-        </div>
-        <div class="w-1/4 text-right font-mono text-xs sim-score text-gray-500">
-            <span class="animate-pulse">Calculando...</span>
-        </div>
+        <td class="p-3 pl-6 truncate max-w-[200px]" title="${item.url}">${cleanUrl(item.url)}</td>
+        <td class="p-3 text-gray-400 text-xs">${item.topic}</td>
+        <td class="p-3 font-mono text-xs sim-score">...</td>
+        <td class="p-3"><span class="text-xs px-2 py-1 rounded bg-gray-800">WAIT</span></td>
     `;
     UI.table.appendChild(row);
-    // Auto-scroll tabla
-    UI.table.scrollTop = UI.table.scrollHeight;
 }
 
 function calculateMetrics() {
@@ -240,41 +141,39 @@ function calculateMetrics() {
     state.vectors.forEach(v => v.vector.forEach((val, k) => sum[k] += val));
     state.centroid = sum.map(val => val / state.vectors.length);
 
-    // 2. Similitudes
+    // 2. Similitud Coseno
     state.vectors.forEach(v => {
         v.sim = cosineSimilarity(v.vector, state.centroid);
     });
 
-    // 3. Actualizar Tabla
-    updateTableScores();
+    // 3. Actualizar UI Tabla
+    const rows = Array.from(UI.table.children);
+    state.vectors.forEach((v, i) => {
+        if (rows[i]) {
+            const score = (v.sim * 100).toFixed(1);
+            const isPass = v.sim >= 0.7;
+            const color = isPass ? 'text-green-400' : 'text-red-400';
+            
+            rows[i].querySelector('.sim-score').innerHTML = `<span class="${color}">${score}%</span>`;
+            rows[i].lastElementChild.innerHTML = isPass 
+                ? `<span class="text-green-400 bg-green-900/20 px-2 py-1 rounded text-xs">PASS</span>`
+                : `<span class="text-red-400 bg-red-900/20 px-2 py-1 rounded text-xs">FAIL</span>`;
+        }
+    });
 
-    // 4. Métricas Finales
-    const passed = state.vectors.filter(v => v.sim > 0.7).length;
+    // 4. Métricas Globales
+    const passed = state.vectors.filter(v => v.sim >= 0.7).length;
     const siteRatio = (passed / state.vectors.length) * 100;
-    
-    // Focus (Top 25%)
+
+    // Focus Ratio (Top 25%)
     const sorted = [...state.vectors].sort((a,b) => b.sim - a.sim);
     const topN = Math.max(1, Math.ceil(state.vectors.length * 0.25));
     const focusAvg = sorted.slice(0, topN).reduce((acc, c) => acc + c.sim, 0) / topN;
 
-    document.getElementById('metric-ratio').innerText = siteRatio.toFixed(0) + "%";
-    document.getElementById('metric-focus').innerText = (focusAvg * 100).toFixed(0) + "%";
-    
-    updateChart(state.vectors);
-}
+    UI.ratioMetric.innerText = siteRatio.toFixed(0) + "%";
+    UI.focusMetric.innerText = (focusAvg * 100).toFixed(0) + "%";
 
-function updateTableScores() {
-    state.vectors.forEach((v, idx) => {
-        const row = document.getElementById(`row-${idx}`);
-        if(row) {
-            const scoreDiv = row.querySelector('.sim-score');
-            const score = (v.sim * 100).toFixed(1);
-            
-            let colorClass = v.sim >= 0.7 ? 'text-green-400' : 'text-red-400';
-            
-            scoreDiv.innerHTML = `<span class="${colorClass} font-bold">${score}%</span>`;
-        }
-    });
+    updateChart(state.vectors);
 }
 
 function cosineSimilarity(a, b) {
@@ -287,15 +186,19 @@ function cosineSimilarity(a, b) {
     return dot / (Math.sqrt(mA) * Math.sqrt(mB));
 }
 
-// Chart.js
+function cleanUrl(url) {
+    return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+}
+
+// ChartJS
 let chartInstance = null;
 function updateChart(data) {
     const ctx = document.getElementById('topicalGraph');
-    if(!ctx) return;
-    
+    if (!ctx) return;
+
     const points = data.map(d => ({
         x: d.sim,
-        y: Math.random() * 0.6 + 0.2 // Random Y para dispersión estética
+        y: Math.random() * 0.5 + 0.25 // Centrado
     }));
 
     if (chartInstance) {
@@ -306,21 +209,20 @@ function updateChart(data) {
             type: 'scatter',
             data: {
                 datasets: [{
-                    label: 'URL Context',
+                    label: 'Pages',
                     data: points,
-                    backgroundColor: ctx => (ctx.raw?.x >= 0.7 ? '#4ade80' : '#f87171'),
-                    pointRadius: 6,
-                    pointHoverRadius: 10
+                    backgroundColor: c => (c.raw?.x >= 0.7 ? '#00ffff' : '#ff00ff'), // Colores Neon originales
+                    pointRadius: 6
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    x: { min: 0, max: 1.1, grid: {color: '#222'} },
+                    x: { min: 0, max: 1.1, grid: { color: '#222' } },
                     y: { display: false, min: 0, max: 1 }
                 },
-                plugins: { legend: {display: false} }
+                plugins: { legend: { display: false } }
             }
         });
     }
