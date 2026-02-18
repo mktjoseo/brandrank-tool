@@ -4,179 +4,94 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BrandRank AI - Audit Tool</title>
-    
-    <!-- Favicons -->
-    <link rel="icon" type="image/png" href="/assets/favicon-96x96.png" sizes="96x96" />
-    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
-    <link rel="shortcut icon" href="/assets/favicon.ico" />
-    <link rel="manifest" href="/assets/site.webmanifest" />
-
-    <!-- Fuentes e Iconos -->
-    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-
-    <!-- Librerías -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
-
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    fontFamily: { sans: ['Montserrat', 'sans-serif'], mono: ['Fira Code', 'monospace'] },
-                    colors: {
-                        dark: { bg: '#020204', card: 'rgba(20, 20, 20, 0.8)' },
-                        neon: { blue: '#00f3ff', purple: '#bd00ff', green: '#00ff9d', pink: '#ff007f' }
-                    },
-                    animation: { 'pulse-glow': 'pulse-glow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite' },
-                    keyframes: { 'pulse-glow': { '0%, 100%': { opacity: 0.8, filter: 'drop-shadow(0 0 5px rgba(255, 0, 127, 0.2))' }, '50%': { opacity: 1, filter: 'drop-shadow(0 0 15px rgba(255, 0, 127, 0.5))' } } }
-                }
-            }
-        }
-    </script>
-
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <style>
-        body {
-            background-color: #020204;
-            background-image: radial-gradient(circle at 50% 0%, rgba(189, 0, 255, 0.05), transparent 40%), radial-gradient(circle at 0% 50%, rgba(255, 0, 127, 0.03), transparent 30%);
-            color: #e5e5e5; overflow-x: hidden;
-        }
-        .glass-panel { background: rgba(15, 15, 18, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.05); box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3); }
-        .custom-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
-        .custom-scroll::-webkit-scrollbar-track { background: #0a0a0a; }
+        body { font-family: 'Montserrat', sans-serif; background-color: #0a0a0a; color: #e5e5e5; }
+        .font-mono { font-family: 'Fira Code', monospace; }
+        .custom-scroll::-webkit-scrollbar { width: 8px; }
+        .custom-scroll::-webkit-scrollbar-track { bg: #111; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
-        .metric-box { @apply flex flex-col p-4 rounded-xl bg-white/5 border border-white/10 transition-colors; }
-        .metric-value { @apply text-3xl font-black text-white font-mono; }
-        .topic-badge { @apply px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider border; }
     </style>
 </head>
-<body class="h-screen flex flex-col font-sans selection:bg-neon-pink selection:text-white overflow-hidden">
+<body class="h-screen flex flex-col overflow-hidden">
 
-    <!-- Navbar -->
-    <nav class="w-full h-20 px-8 flex justify-between items-center glass-panel z-50 shrink-0 border-b border-gray-800">
-        <div class="flex items-center gap-4">
-            <!-- Logo desde Assets -->
-            <img src="/assets/brand-rank-wide-logo.svg" alt="BrandRank" class="h-10 md:h-12 drop-shadow-[0_0_8px_rgba(255,0,127,0.5)]" onerror="this.style.display='none'; document.getElementById('text-logo').classList.remove('hidden')">
-            <h1 id="text-logo" class="hidden text-2xl font-black tracking-tighter text-white">BRAND<span class="text-neon-pink">RANK</span></h1>
+    <header class="h-16 border-b border-gray-800 bg-[#050505] flex items-center px-6 justify-between z-10">
+        <div class="flex items-center gap-2 text-xl font-bold tracking-tighter">
+            <i class="ph-fill ph-brain text-green-400"></i> BRANDRANK<span class="text-gray-600">.AI</span>
         </div>
-        <div>
-            <button onclick="downloadExcelReport()" id="download-btn" class="hidden text-xs flex items-center gap-2 px-4 py-2 rounded border border-gray-700 hover:bg-white/10 transition-colors text-neon-green border-neon-green/30 font-bold tracking-wide">
-                <i class="ph-fill ph-microsoft-excel-logo text-lg"></i> EXPORT .XLS
-            </button>
-        </div>
-    </nav>
+        <div class="text-xs font-mono text-gray-500">v2.0 (Manual Mode)</div>
+    </header>
 
-    <!-- Layout -->
-    <div class="flex flex-grow overflow-hidden relative">
-        <main class="flex-grow overflow-y-auto custom-scroll relative z-10 p-4 md:p-8 w-full transition-all" id="main-content">
-            <div class="max-w-7xl mx-auto flex flex-col gap-12 pb-60">
+    <div class="flex flex-1 overflow-hidden">
+        
+        <aside class="w-[400px] bg-[#0c0c0c] border-r border-gray-800 flex flex-col z-20 shadow-xl">
+            <div class="p-6 space-y-6 overflow-y-auto custom-scroll flex-1">
                 
-                <!-- INPUT -->
-                <section id="step-input" class="flex flex-col items-center justify-center py-12 min-h-[50vh]">
-                    <div class="text-center mb-10">
-                        <h2 class="text-5xl md:text-6xl font-black mb-6 text-white tracking-tight">
-                            Site Ratio & <span class="text-transparent bg-clip-text bg-gradient-to-r from-neon-pink to-neon-purple">Entity Focus</span>
-                        </h2>
-                        <p class="text-gray-400 text-lg max-w-xl mx-auto">Valida la coherencia semántica de cualquier dominio.</p>
+                <div>
+                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">1. Descubrir URLs</label>
+                    <div class="flex gap-2">
+                        <input type="text" id="domain-input" placeholder="ejemplo.com" 
+                            class="w-full bg-[#151515] border border-gray-700 rounded px-3 py-2 text-sm focus:border-green-500 outline-none transition">
+                        <button id="search-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 rounded transition">
+                            <i class="ph ph-magnifying-glass"></i>
+                        </button>
                     </div>
-                    <div class="w-full max-w-xl bg-black rounded-xl p-2 flex items-center border border-gray-800 focus-within:border-neon-pink transition-colors shadow-2xl shadow-neon-pink/10">
-                        <div class="pl-4 text-gray-500"><i class="ph ph-globe text-2xl"></i></div>
-                        <input type="text" id="domainInput" placeholder="dominio.com" class="bg-transparent border-none outline-none text-white text-lg w-full placeholder-gray-700 font-mono h-12 ml-3" autocomplete="off">
-                        <button onclick="startDiscovery()" class="bg-white hover:bg-neon-pink hover:text-white text-black font-bold py-3 px-8 rounded-lg transition-all">AUDITAR</button>
-                    </div>
-                </section>
+                </div>
 
-                <!-- SELECTION -->
-                <section id="step-selection" class="hidden w-full max-w-3xl mx-auto glass-panel rounded-2xl p-8 border-t border-gray-800 animate-pulse-glow">
-                    <div class="flex justify-between items-end mb-6">
-                        <div>
-                            <h3 class="text-2xl font-bold text-white mb-1">Definir Corpus</h3>
-                            <p class="text-xs text-gray-400">Selecciona las URLs que definen la temática.</p>
-                        </div>
-                        <div class="flex gap-3">
-                            <button onclick="selectAll()" class="px-4 py-2 text-xs border border-gray-700 rounded text-gray-400 hover:text-white">Select All</button>
-                            <button onclick="analyzeSelected()" class="bg-neon-pink text-white font-bold py-2 px-6 rounded hover:bg-neon-purple transition-colors flex items-center gap-2 text-sm shadow-[0_0_15px_rgba(255,0,127,0.3)]"><i class="ph-fill ph-calculator"></i> CALCULAR</button>
-                        </div>
+                <div id="selection-area" class="hidden">
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="text-xs font-bold text-gray-500 uppercase">Seleccionar URLs</label>
+                        <button id="toggle-all-btn" class="text-xs text-blue-400 hover:text-white underline">Select All</button>
                     </div>
-                    <div id="url-list" class="flex flex-col gap-2 max-h-80 overflow-y-auto custom-scroll pr-2 bg-black/20 rounded-lg p-2"></div>
-                </section>
+                    
+                    <div id="url-list" class="bg-[#111] border border-gray-800 rounded h-48 overflow-y-auto p-2 space-y-1 text-xs font-mono mb-4 custom-scroll">
+                        </div>
 
-                <!-- RESULTS -->
-                <section id="step-results" class="hidden w-full max-w-7xl mx-auto">
-                    <!-- Metrics -->
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                        <div class="metric-box group hover:border-neon-blue/50">
-                            <div class="text-xs text-gray-400 flex items-center gap-2"><i class="ph-fill ph-crosshair text-neon-blue"></i> SITE FOCUS</div>
-                            <div id="val-focus" class="metric-value text-neon-blue">--</div>
-                            <div class="w-full bg-gray-800 h-1 mt-2 rounded-full overflow-hidden"><div id="bar-focus" class="bg-neon-blue h-full w-0 transition-all duration-1000"></div></div>
-                        </div>
-                        <div class="metric-box group hover:border-neon-purple/50">
-                            <div class="text-xs text-gray-400 flex items-center gap-2"><i class="ph-fill ph-arrows-out text-neon-purple"></i> RADIUS (σ)</div>
-                            <div id="val-radius" class="metric-value text-neon-purple">--</div>
-                            <div class="w-full bg-gray-800 h-1 mt-2 rounded-full overflow-hidden"><div id="bar-radius" class="bg-neon-purple h-full w-0 transition-all duration-1000"></div></div>
-                        </div>
-                        <div class="metric-box group hover:border-neon-green/50">
-                            <div class="text-xs text-gray-400 flex items-center gap-2"><i class="ph-fill ph-percent text-neon-green"></i> SITE RATIO</div>
-                            <div id="val-ratio" class="metric-value text-neon-green">--</div>
-                            <div class="w-full bg-gray-800 h-1 mt-2 rounded-full overflow-hidden"><div id="bar-ratio" class="bg-neon-green h-full w-0 transition-all duration-1000"></div></div>
-                        </div>
-                        <div class="metric-box justify-center items-center text-center border-dashed border-gray-700 bg-transparent">
-                            <div class="text-xs text-gray-500 uppercase tracking-widest mb-1">LINK OPPORTUNITY</div>
-                            <div id="final-verdict" class="text-xl font-bold text-white">--</div>
-                        </div>
-                    </div>
+                    <label class="text-xs font-bold text-gray-500 uppercase mb-2 block">O añadir manualmente</label>
+                    <textarea id="manual-urls" placeholder="https://site.com/url1&#10;https://site.com/url2" 
+                        class="w-full bg-[#151515] border border-gray-700 rounded px-3 py-2 text-xs h-24 focus:border-green-500 outline-none font-mono resize-none"></textarea>
+                </div>
 
-                    <!-- Dashboard -->
-                    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
-                        <div class="lg:col-span-8 glass-panel p-4 rounded-2xl border border-gray-800 h-[500px] relative">
-                            <div class="absolute top-4 left-4 text-xs font-mono text-gray-500 z-10">VECTOR SPACE PROJECTION (PCA)</div>
-                            <canvas id="scatterChart"></canvas>
-                        </div>
-                        <div class="lg:col-span-4 glass-panel p-6 rounded-2xl flex flex-col bg-gradient-to-b from-white/5 to-transparent">
-                            <h3 class="text-sm font-bold text-white uppercase mb-4 border-b border-gray-800 pb-2 flex items-center gap-2">
-                                <i class="ph-fill ph-sparkle text-neon-pink"></i> Perfil de Entidad
-                            </h3>
-                            <div id="ai-summary" class="text-gray-300 text-sm flex-grow overflow-y-auto font-mono max-h-60 leading-relaxed"></div>
-                            <div id="topic-tags" class="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-800"></div>
-                        </div>
-                    </div>
+                <button id="start-btn" disabled 
+                    class="w-full py-4 bg-gray-800 text-gray-500 font-bold rounded cursor-not-allowed transition flex items-center justify-center gap-2">
+                    <i class="ph-fill ph-play"></i> INICIAR AUDITORÍA
+                </button>
+            </div>
+        </aside>
 
-                    <!-- Table -->
-                    <div class="glass-panel p-8 rounded-2xl">
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-left">
-                                <thead class="text-xs text-gray-500 border-b border-gray-800 uppercase font-mono">
-                                    <tr>
-                                        <th class="pb-3 pl-2">URL</th>
-                                        <th class="pb-3 text-center">Topic</th>
-                                        <th class="pb-3 text-right">Similarity</th>
-                                        <th class="pb-3 text-right pr-2">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="results-table-body" class="font-mono text-gray-300 text-sm"></tbody>
-                            </table>
-                        </div>
+        <main class="flex-1 flex flex-col relative bg-black">
+            <div class="h-1/2 p-6 border-b border-gray-800 relative">
+                <canvas id="topicalGraph"></canvas>
+                <div class="absolute top-6 right-6 flex gap-4">
+                    <div class="bg-black/80 backdrop-blur border border-gray-800 p-3 rounded">
+                        <div class="text-xs text-gray-500 uppercase">Focus Ratio</div>
+                        <div id="metric-focus" class="text-2xl font-mono text-green-400 font-bold">0%</div>
                     </div>
-                </section>
+                    <div class="bg-black/80 backdrop-blur border border-gray-800 p-3 rounded">
+                        <div class="text-xs text-gray-500 uppercase">Site Ratio</div>
+                        <div id="metric-ratio" class="text-2xl font-mono text-blue-400 font-bold">0%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="h-1/2 flex flex-col">
+                <div class="bg-[#0a0a0a] px-4 py-2 border-b border-gray-800 flex text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    <div class="w-1/2">URL</div>
+                    <div class="w-1/4">Topic</div>
+                    <div class="w-1/4 text-right">Score</div>
+                </div>
+                <div id="results-table-body" class="flex-1 overflow-y-auto custom-scroll bg-black/50 text-sm font-mono p-4 space-y-2"></div>
+                
+                <div id="console-output" class="h-32 bg-[#050505] border-t border-gray-800 p-3 font-mono text-xs overflow-y-auto text-gray-400">
+                    <div>> Esperando input...</div>
+                </div>
             </div>
         </main>
     </div>
 
-    <!-- Console Footer (GRANDE) -->
-    <footer id="console-footer" class="fixed bottom-0 left-0 w-full bg-[#050505] border-t border-gray-800 z-50 shadow-2xl flex flex-col h-48 max-h-[80vh] transition-all duration-200">
-        <div id="drag-handle" class="w-full h-12 bg-[#111] border-b border-gray-800 flex items-center justify-between px-6 cursor-row-resize select-none group hover:bg-[#161616]">
-            <div class="flex items-center gap-3 text-base text-gray-300 font-mono font-bold group-hover:text-white">
-                <i class="ph-fill ph-terminal-window text-neon-pink text-xl"></i> SYSTEM LOGS
-            </div>
-            <button onclick="document.getElementById('console-output').innerHTML=''" class="text-gray-400 hover:text-white p-2"><i class="ph ph-trash text-xl"></i></button>
-        </div>
-        <div id="terminal-body" class="flex-grow p-6 font-mono text-base leading-relaxed overflow-y-auto custom-scroll text-green-400 bg-black/95">
-            <div id="console-output" class="flex flex-col gap-3"></div>
-        </div>
-    </footer>
-
-    <script src="script.js"></script>
+    <script type="module" src="script.js"></script>
 </body>
 </html>

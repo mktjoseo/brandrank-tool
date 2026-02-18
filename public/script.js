@@ -1,365 +1,294 @@
-// ==========================================
-// CONFIGURACIÓN GLOBAL
-// ==========================================
-const CONFIG = {
-    BATCH_SIZE: 3,       // Analizamos 3 URLs simultáneamente (para no saturar)
-    SIMILARITY_THRESHOLD: 0.7, // Umbral para considerar una URL "relevante" (Site Ratio)
-    FOCUS_PERCENTILE: 0.25     // Top 25% para calcular el Focus Ratio
-};
-
-// ==========================================
-// ESTADO DE LA APLICACIÓN
-// ==========================================
+// VARIABLES GLOBALES
+let discoveredUrls = []; // URLs encontradas por la búsqueda
 let state = {
-    domain: '',
-    urls: [],            // Lista total de URLs descubiertas
-    processedCount: 0,   // Cuántas llevamos analizadas
-    vectors: [],         // Aquí guardamos la data de la IA (topic, vector, sim)
-    centroid: null,      // El "centro de gravedad" del sitio
+    vectors: [],
+    centroid: null,
     isAnalyzing: false
 };
 
-// Referencias al DOM (Elementos de la pantalla)
-const UI = {
+// ELEMENTOS DEL DOM
+const dom = {
     input: document.getElementById('domain-input'),
+    btnSearch: document.getElementById('search-btn'),
+    areaSelection: document.getElementById('selection-area'),
+    listContainer: document.getElementById('url-list'),
+    manualInput: document.getElementById('manual-urls'),
+    btnToggle: document.getElementById('toggle-all-btn'),
     btnStart: document.getElementById('start-btn'),
     console: document.getElementById('console-output'),
-    tableBody: document.getElementById('results-table-body'),
-    terminalBody: document.getElementById('terminal-body'),
-    metrics: {
-        focus: document.getElementById('metric-focus'),
-        ratio: document.getElementById('metric-ratio')
-    }
+    table: document.getElementById('results-table-body')
 };
 
 // ==========================================
-// SISTEMA DE LOGS (Consola estilo Hacker)
-// ==========================================
-function log(message, type = 'info') {
-    if (!UI.console) return;
-    
-    const line = document.createElement('div');
-    const time = new Date().toLocaleTimeString('es-ES', { hour12: false });
-    
-    // Colores según el tipo de mensaje
-    let colorClass = 'text-green-400';
-    let icon = '➜';
-    
-    if (type === 'error') { colorClass = 'text-red-500'; icon = '✖'; }
-    if (type === 'warn')  { colorClass = 'text-yellow-400'; icon = '⚠'; }
-    if (type === 'process') { colorClass = 'text-blue-400'; icon = '⚙'; }
-    if (type === 'success') { colorClass = 'text-neon-pink font-bold'; icon = '★'; }
-
-    line.className = "mb-1 font-mono text-sm";
-    line.innerHTML = `
-        <span class="opacity-40 select-none mr-2">[${time}]</span>
-        <span class="${colorClass}">${icon} ${message}</span>
-    `;
-    
-    UI.console.appendChild(line);
-    
-    // Auto-scroll hacia abajo
-    if (UI.terminalBody) {
-        UI.terminalBody.scrollTop = UI.terminalBody.scrollHeight;
-    }
-}
-
-// ==========================================
-// LÓGICA PRINCIPAL (El Cerebro)
+// 1. FASE DE BÚSQUEDA Y SELECCIÓN
 // ==========================================
 
-async function startAnalysis() {
-    // 1. Limpieza y Preparación
-    const domainInput = UI.input.value.trim().replace(/https?:\/\//, '').replace(/\/$/, '');
-    
-    if (!domainInput) {
-        log("Por favor, escribe un dominio válido.", "error");
-        return;
-    }
+// Escuchar tecla ENTER en el input
+dom.input.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') handleSearch();
+});
 
-    // Reset de variables
-    state.domain = domainInput;
-    state.urls = [];
-    state.vectors = [];
-    state.processedCount = 0;
-    state.centroid = null;
-    UI.tableBody.innerHTML = ''; // Limpiar tabla
-    updateChart([]); // Limpiar gráfico
-    
-    log(`Iniciando auditoría para: ${state.domain}`, "success");
-    UI.btnStart.disabled = true;
-    UI.btnStart.innerText = "Auditando...";
+dom.btnSearch.addEventListener('click', handleSearch);
+
+async function handleSearch() {
+    const domain = dom.input.value.trim().replace(/^https?:\/\//, '').replace(/\/$/, '');
+    if (!domain) return log("Escribe un dominio válido.", "error");
+
+    log(`Buscando URLs para: ${domain}...`, "process");
+    dom.areaSelection.classList.add('hidden');
+    dom.btnStart.disabled = true;
+    dom.btnStart.className = "w-full py-4 bg-gray-800 text-gray-500 font-bold rounded cursor-not-allowed transition flex items-center justify-center gap-2";
 
     try {
-        // 2. Fase de Descubrimiento (Search)
-        log("Buscando URLs indexadas en Google...", "process");
-        const searchRes = await fetch(`/api/search?domain=${state.domain}`);
+        // Llamamos a la API de búsqueda (search.js)
+        const res = await fetch(`/api/search?domain=${domain}`);
+        if (!res.ok) throw new Error("Error conectando con API de búsqueda");
         
-        if (!searchRes.ok) throw new Error("Fallo al buscar URLs");
-        
-        const urlsFound = await searchRes.json();
-        
-        if (!urlsFound || urlsFound.length === 0) {
-            throw new Error("No se encontraron URLs para este dominio.");
+        const urls = await res.json();
+        discoveredUrls = urls || [];
+
+        if (discoveredUrls.length === 0) {
+            log("No se encontraron URLs automáticas. Puedes añadir manuales.", "warn");
+        } else {
+            log(`Encontradas ${discoveredUrls.length} URLs.`, "success");
         }
 
-        state.urls = urlsFound;
-        log(`Encontradas ${state.urls.length} URLs. Iniciando análisis profundo...`, "info");
+        renderSelectionList();
+        dom.areaSelection.classList.remove('hidden');
+        enableStartButton();
 
-        // 3. Fase de Análisis (Batch Processing)
-        await processUrlsInBatches(state.urls);
-
-        // 4. Finalización
-        log("Auditoría completada exitosamente.", "success");
-        calculateFinalMetrics();
-
-    } catch (error) {
-        log(error.message, "error");
-    } finally {
-        UI.btnStart.disabled = false;
-        UI.btnStart.innerText = "AUDITAR DOMINIO";
+    } catch (e) {
+        log(e.message, "error");
     }
 }
 
-// --- Procesador por Lotes (Optimización de Velocidad) ---
-async function processUrlsInBatches(urls) {
-    // Recorremos las URLs en grupos de 3 (BATCH_SIZE)
-    for (let i = 0; i < urls.length; i += CONFIG.BATCH_SIZE) {
-        const batch = urls.slice(i, i + CONFIG.BATCH_SIZE);
-        const batchNumber = Math.floor(i / CONFIG.BATCH_SIZE) + 1;
-        const totalBatches = Math.ceil(urls.length / CONFIG.BATCH_SIZE);
+// Renderizar checkboxes
+function renderSelectionList() {
+    dom.listContainer.innerHTML = '';
+    
+    discoveredUrls.forEach(url => {
+        const div = document.createElement('div');
+        div.className = "flex items-center gap-2 hover:bg-white/5 p-1 rounded cursor-pointer";
+        div.innerHTML = `
+            <input type="checkbox" value="${url}" checked class="url-checkbox accent-green-500 cursor-pointer">
+            <span class="truncate" title="${url}">${url.replace(/^https?:\/\//, '')}</span>
+        `;
+        // Click en el texto también marca el checkbox
+        div.addEventListener('click', (e) => {
+            if (e.target.type !== 'checkbox') {
+                const cb = div.querySelector('input');
+                cb.checked = !cb.checked;
+            }
+        });
+        dom.listContainer.appendChild(div);
+    });
+}
 
-        log(`Procesando bloque ${batchNumber}/${totalBatches} (${batch.length} URLs)...`, "process");
+// Toggle Select All / Deselect All
+let allSelected = true;
+dom.btnToggle.addEventListener('click', () => {
+    const checkboxes = document.querySelectorAll('.url-checkbox');
+    allSelected = !allSelected;
+    checkboxes.forEach(cb => cb.checked = allSelected);
+    dom.btnToggle.innerText = allSelected ? "Deselect All" : "Select All";
+});
 
-        // Lanzamos las peticiones en paralelo y esperamos a que todas terminen
-        await Promise.all(batch.map(url => analyzeSingleUrl(url)));
+// Habilitar botón Start
+function enableStartButton() {
+    dom.btnStart.disabled = false;
+    dom.btnStart.innerHTML = `<i class="ph-fill ph-play"></i> INICIAR AUDITORÍA`;
+    dom.btnStart.className = "w-full py-4 bg-green-600 hover:bg-green-500 text-white font-bold rounded shadow-lg shadow-green-900/20 transition flex items-center justify-center gap-2";
+}
 
-        // Actualizamos cálculos intermedios
+// ==========================================
+// 2. FASE DE ANÁLISIS (Batching)
+// ==========================================
+
+dom.btnStart.addEventListener('click', async () => {
+    // Recopilar URLs seleccionadas
+    const checkboxes = document.querySelectorAll('.url-checkbox:checked');
+    const manualText = dom.manualInput.value.trim();
+    
+    let finalUrls = Array.from(checkboxes).map(cb => cb.value);
+    
+    // Añadir manuales
+    if (manualText) {
+        const manuals = manualText.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
+        finalUrls = [...finalUrls, ...manuals];
+    }
+
+    // Eliminar duplicados
+    finalUrls = [...new Set(finalUrls)];
+
+    if (finalUrls.length === 0) return log("Selecciona al menos 1 URL", "error");
+
+    // UI Reset
+    state = { vectors: [], centroid: null, isAnalyzing: true };
+    dom.table.innerHTML = '';
+    dom.btnStart.disabled = true;
+    dom.btnStart.innerText = "Analizando...";
+    updateChart([]);
+    
+    log(`Iniciando análisis de ${finalUrls.length} URLs...`, "process");
+
+    // Procesar en lotes de 2 para ser muy seguros con la API gratuita
+    const BATCH_SIZE = 2; 
+    
+    for (let i = 0; i < finalUrls.length; i += BATCH_SIZE) {
+        const batch = finalUrls.slice(i, i + BATCH_SIZE);
+        log(`Procesando lote ${Math.floor(i/BATCH_SIZE)+1}...`, "info");
+        
+        await Promise.all(batch.map(processSingleUrl));
+        
+        // Pausa de seguridad
+        await new Promise(r => setTimeout(r, 1500)); 
+
+        // Recalcular métricas en tiempo real
         if (state.vectors.length > 0) {
-            calculateCentroid();
-            updateSimilitudes();
-            renderTable();
-            updateChart(state.vectors);
+            calculateMetrics();
         }
-
-        // Pequeña pausa para respirar (1 segundo)
-        await new Promise(r => setTimeout(r, 1000));
     }
-}
 
-// --- Análisis Individual de una URL ---
-async function analyzeSingleUrl(url) {
+    dom.btnStart.disabled = false;
+    dom.btnStart.innerText = "AUDITORÍA COMPLETADA";
+    log("Proceso finalizado.", "success");
+});
+
+async function processSingleUrl(url) {
     try {
-        const response = await fetch('/api/analyze', {
+        const res = await fetch('/api/analyze', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ url })
         });
+        const data = await res.json();
 
-        const json = await response.json();
-
-        if (json.success && json.data) {
-            // Guardamos el resultado en el estado
-            state.vectors.push({
-                url: json.data.url,
-                topic: json.data.topic || "Desconocido",
-                vector: json.data.vector,
-                sim: 0 // Se calculará después contra el centroide
-            });
-            log(`Analizado: ${cleanUrl(url)}`, "info");
+        if (data.success) {
+            const item = {
+                url: data.data.url,
+                topic: data.data.topic,
+                vector: data.data.vector,
+                sim: 0
+            };
+            state.vectors.push(item);
+            addRowToTable(item);
+            log(`OK: ${url.substring(0, 30)}...`, "success");
         } else {
-            log(`Fallo en ${cleanUrl(url)}: ${json.error || 'Error desconocido'}`, "warn");
+            log(`Error: ${data.error || 'Desconocido'} (${url})`, "error");
         }
-    } catch (error) {
-        log(`Error de red en ${cleanUrl(url)}`, "error");
+    } catch (e) {
+        log(`Fallo red: ${url}`, "error");
     }
 }
 
 // ==========================================
-// MATEMÁTICAS VECTORIALES
+// 3. MATEMÁTICAS Y VISUALIZACIÓN
 // ==========================================
 
-// 1. Calcular el Centroide (Promedio de todos los vectores)
-function calculateCentroid() {
-    if (state.vectors.length === 0) return;
-
+function calculateMetrics() {
+    // 1. Centroide
     const dim = state.vectors[0].vector.length;
-    let sumVector = new Array(dim).fill(0);
+    let sum = new Array(dim).fill(0);
+    state.vectors.forEach(v => v.vector.forEach((val, k) => sum[k] += val));
+    state.centroid = sum.map(val => val / state.vectors.length);
 
-    // Sumar todos los vectores
-    state.vectors.forEach(item => {
-        for (let i = 0; i < dim; i++) {
-            sumVector[i] += item.vector[i];
+    // 2. Similitudes
+    state.vectors.forEach(v => {
+        v.sim = cosineSimilarity(v.vector, state.centroid);
+    });
+
+    // 3. Ratios
+    const passed = state.vectors.filter(v => v.sim > 0.7).length;
+    const siteRatio = (passed / state.vectors.length) * 100;
+    
+    // Focus (Top 25%)
+    const sorted = [...state.vectors].sort((a,b) => b.sim - a.sim);
+    const topN = Math.ceil(state.vectors.length * 0.25);
+    const focusAvg = sorted.slice(0, topN).reduce((acc, c) => acc + c.sim, 0) / topN;
+
+    // UI Updates
+    document.getElementById('metric-ratio').innerText = siteRatio.toFixed(0) + "%";
+    document.getElementById('metric-focus').innerText = (focusAvg * 100).toFixed(0) + "%";
+    
+    updateTableScores();
+    updateChart(state.vectors);
+}
+
+function cosineSimilarity(a, b) {
+    let dot = 0, mA = 0, mB = 0;
+    for(let i=0; i<a.length; i++) {
+        dot += a[i]*b[i];
+        mA += a[i]*a[i];
+        mB += b[i]*b[i];
+    }
+    return dot / (Math.sqrt(mA) * Math.sqrt(mB));
+}
+
+// UI Helpers
+function log(msg, type) {
+    const div = document.createElement('div');
+    div.innerText = `> ${msg}`;
+    div.className = type === 'error' ? 'text-red-500' : (type === 'success' ? 'text-green-400' : 'text-gray-400');
+    dom.console.appendChild(div);
+    dom.console.scrollTop = dom.console.scrollHeight;
+}
+
+function addRowToTable(item) {
+    const row = document.createElement('div');
+    row.id = `row-${state.vectors.length-1}`;
+    row.className = "flex items-center border-b border-gray-800 py-2";
+    row.innerHTML = `
+        <div class="w-1/2 truncate pr-2 text-gray-300" title="${item.url}">${item.url.replace(/^https?:\/\//,'')}</div>
+        <div class="w-1/4 text-gray-500 text-xs truncate">${item.topic}</div>
+        <div class="w-1/4 text-right font-mono text-gray-400 sim-score">...</div>
+    `;
+    dom.table.appendChild(row);
+}
+
+function updateTableScores() {
+    state.vectors.forEach((v, idx) => {
+        const row = document.getElementById(`row-${idx}`);
+        if(row) {
+            const scoreDiv = row.querySelector('.sim-score');
+            const score = (v.sim * 100).toFixed(1);
+            scoreDiv.innerText = `${score}%`;
+            scoreDiv.className = `w-1/4 text-right font-mono ${v.sim > 0.7 ? 'text-green-400' : 'text-red-400'}`;
         }
     });
-
-    // Dividir por el número de vectores para sacar el promedio
-    state.centroid = sumVector.map(val => val / state.vectors.length);
 }
 
-// 2. Calcular Similitud Coseno
-function cosineSimilarity(vecA, vecB) {
-    if (!vecA || !vecB) return 0;
-    
-    let dotProduct = 0;
-    let normA = 0;
-    let normB = 0;
-
-    for (let i = 0; i < vecA.length; i++) {
-        dotProduct += vecA[i] * vecB[i];
-        normA += vecA[i] * vecA[i];
-        normB += vecB[i] * vecB[i];
-    }
-
-    if (normA === 0 || normB === 0) return 0;
-    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
-// 3. Actualizar similitudes de todas las páginas contra el nuevo centroide
-function updateSimilitudes() {
-    if (!state.centroid) return;
-
-    state.vectors.forEach(item => {
-        item.sim = cosineSimilarity(item.vector, state.centroid);
-    });
-
-    // Ordenamos de mayor a menor similitud
-    state.vectors.sort((a, b) => b.sim - a.sim);
-}
-
-// 4. Calcular Métricas Finales (Focus & Ratio)
-function calculateFinalMetrics() {
-    if (state.vectors.length === 0) return;
-
-    // --- SITE RATIO (% de URLs con sim > 0.7) ---
-    const passing = state.vectors.filter(v => v.sim >= CONFIG.SIMILARITY_THRESHOLD).length;
-    const siteRatio = (passing / state.vectors.length) * 100;
-
-    // --- FOCUS RATIO (Promedio del Top 25%) ---
-    const topCount = Math.max(1, Math.ceil(state.vectors.length * CONFIG.FOCUS_PERCENTILE));
-    const topVectors = state.vectors.slice(0, topCount);
-    const focusSum = topVectors.reduce((acc, curr) => acc + curr.sim, 0);
-    const focusRatio = (focusSum / topCount) * 100;
-
-    // Actualizar UI con animación
-    animateValue("metric-ratio", 0, siteRatio, 1500, true);
-    animateValue("metric-focus", 0, focusRatio, 1500, false); // El focus suele ser 0-1, lo multipliqué x100
-}
-
-// ==========================================
-// INTERFAZ DE USUARIO (Render)
-// ==========================================
-
-function renderTable() {
-    if (!UI.tableBody) return;
-    UI.tableBody.innerHTML = '';
-
-    state.vectors.forEach(item => {
-        const row = document.createElement('tr');
-        const score = (item.sim * 100).toFixed(1);
-        const isPass = item.sim >= CONFIG.SIMILARITY_THRESHOLD;
-        
-        row.className = "border-b border-gray-800 hover:bg-white/5 transition";
-        row.innerHTML = `
-            <td class="p-3 truncate max-w-[200px]" title="${item.url}">${cleanUrl(item.url)}</td>
-            <td class="p-3 text-gray-400">${item.topic}</td>
-            <td class="p-3 font-mono ${isPass ? 'text-green-400' : 'text-red-400'}">${score}%</td>
-            <td class="p-3 text-center">
-                <span class="px-2 py-1 rounded text-xs ${isPass ? 'bg-green-900/30 text-green-300' : 'bg-red-900/30 text-red-300'}">
-                    ${isPass ? 'PASS' : 'FAIL'}
-                </span>
-            </td>
-        `;
-        UI.tableBody.appendChild(row);
-    });
-}
-
-// Helper para limpiar URL visualmente
-function cleanUrl(url) {
-    return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
-}
-
-// Animación de números
-function animateValue(id, start, end, duration, isPercent) {
-    const obj = document.getElementById(id);
-    if (!obj) return;
-    let startTimestamp = null;
-    const step = (timestamp) => {
-        if (!startTimestamp) startTimestamp = timestamp;
-        const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-        const value = Math.floor(progress * (end - start) + start);
-        obj.innerHTML = value + (isPercent ? "%" : "");
-        if (progress < 1) window.requestAnimationFrame(step);
-    };
-    window.requestAnimationFrame(step);
-}
-
-// ==========================================
-// GRÁFICO (Chart.js)
-// ==========================================
-let scatterChart = null;
-
+// ChartJS Setup
+let chartInstance = null;
 function updateChart(data) {
     const ctx = document.getElementById('topicalGraph');
-    if (!ctx) return;
-
-    // Mapeamos los datos para el gráfico de dispersión
-    // X = Similitud, Y = Aleatorio (para dispersar visualmente)
-    const chartData = data.map(v => ({
-        x: v.sim, 
-        y: Math.random() * 0.5 + 0.25, // Mantiene los puntos centrados verticalmente
-        url: cleanUrl(v.url),
-        topic: v.topic
+    const points = data.map(d => ({
+        x: d.sim,
+        y: Math.random() * 0.8 + 0.1 // Random Y para separar puntos
     }));
 
-    if (scatterChart) {
-        scatterChart.data.datasets[0].data = chartData;
-        scatterChart.update();
+    if (chartInstance) {
+        chartInstance.data.datasets[0].data = points;
+        chartInstance.update();
     } else {
-        scatterChart = new Chart(ctx, {
+        chartInstance = new Chart(ctx, {
             type: 'scatter',
             data: {
                 datasets: [{
-                    label: 'Páginas Analizadas',
-                    data: chartData,
-                    backgroundColor: (ctx) => {
-                        const val = ctx.raw?.x || 0;
-                        return val >= CONFIG.SIMILARITY_THRESHOLD ? '#4ade80' : '#f87171';
-                    },
-                    pointRadius: 6,
-                    pointHoverRadius: 8
+                    label: 'URL',
+                    data: points,
+                    backgroundColor: ctx => (ctx.raw?.x > 0.7 ? '#4ade80' : '#f87171'),
+                    pointRadius: 6
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    x: { 
-                        min: 0, 
-                        max: 1, 
-                        grid: { color: '#333' },
-                        title: { display: true, text: 'Coherencia Semántica (Similitud)', color: '#666' }
-                    },
-                    y: { 
-                        display: false, // Ocultamos el eje Y porque es aleatorio
-                        min: 0, 
-                        max: 1 
-                    }
+                    x: { min: 0, max: 1.1, grid: {color: '#222'} },
+                    y: { display: false, min: 0, max: 1 }
                 },
-                plugins: {
-                    tooltip: {
-                        callbacks: {
-                            label: (ctx) => `${ctx.raw.url} (${(ctx.raw.x * 100).toFixed(1)}%)`
-                        }
-                    },
-                    legend: { display: false }
-                }
+                plugins: { legend: {display: false} }
             }
         });
     }
-}
-
-// Listener del botón
-if (UI.btnStart) {
-    UI.btnStart.addEventListener('click', startAnalysis);
 }
