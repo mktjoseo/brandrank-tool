@@ -4,93 +4,119 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BrandRank AI - Audit Tool</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+
     <style>
-        body { font-family: 'Montserrat', sans-serif; background-color: #0a0a0a; color: #e5e5e5; }
+        body { font-family: 'Montserrat', sans-serif; background-color: #050505; color: #e5e5e5; }
         .font-mono { font-family: 'Fira Code', monospace; }
-        .custom-scroll::-webkit-scrollbar { width: 8px; }
-        .custom-scroll::-webkit-scrollbar-track { bg: #111; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #111; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        /* Animaciones */
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden">
 
-    <header class="h-16 border-b border-gray-800 bg-[#050505] flex items-center px-6 justify-between z-10">
+    <header class="h-16 border-b border-gray-800 bg-[#0a0a0a] flex items-center px-6 justify-between z-20">
         <div class="flex items-center gap-2 text-xl font-bold tracking-tighter">
             <i class="ph-fill ph-brain text-green-400"></i> BRANDRANK<span class="text-gray-600">.AI</span>
         </div>
-        <div class="text-xs font-mono text-gray-500">v2.0 (Manual Mode)</div>
+        <div class="text-xs font-mono text-gray-500">v2.1 Stable</div>
     </header>
 
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1 overflow-hidden relative">
         
-        <aside class="w-[400px] bg-[#0c0c0c] border-r border-gray-800 flex flex-col z-20 shadow-xl">
+        <aside class="w-[380px] bg-[#0c0c0c] border-r border-gray-800 flex flex-col z-10 shadow-xl">
             <div class="p-6 space-y-6 overflow-y-auto custom-scroll flex-1">
                 
                 <div>
-                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">1. Descubrir URLs</label>
-                    <div class="flex gap-2">
+                    <label class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 block">1. Objetivo</label>
+                    <div class="flex gap-2 relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i class="ph ph-globe text-gray-500"></i>
+                        </div>
                         <input type="text" id="domain-input" placeholder="ejemplo.com" 
-                            class="w-full bg-[#151515] border border-gray-700 rounded px-3 py-2 text-sm focus:border-green-500 outline-none transition">
-                        <button id="search-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-3 rounded transition">
-                            <i class="ph ph-magnifying-glass"></i>
+                            class="w-full bg-[#151515] border border-gray-700 rounded pl-10 pr-3 py-3 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition text-white font-mono">
+                        <button id="search-btn" class="bg-gray-800 hover:bg-gray-700 text-white px-4 rounded border border-gray-700 transition">
+                            <i class="ph-bold ph-magnifying-glass"></i>
                         </button>
                     </div>
                 </div>
 
-                <div id="selection-area" class="hidden">
-                    <div class="flex justify-between items-center mb-2">
-                        <label class="text-xs font-bold text-gray-500 uppercase">Seleccionar URLs</label>
-                        <button id="toggle-all-btn" class="text-xs text-blue-400 hover:text-white underline">Select All</button>
+                <div id="selection-area" class="hidden fade-in space-y-3">
+                    <div class="flex justify-between items-end border-b border-gray-800 pb-2">
+                        <label class="text-xs font-bold text-gray-500 uppercase">2. Selección (<span id="url-count">0</span>)</label>
+                        <button id="toggle-all-btn" class="text-[10px] text-blue-400 hover:text-white uppercase font-bold tracking-wider">Select All</button>
                     </div>
                     
-                    <div id="url-list" class="bg-[#111] border border-gray-800 rounded h-48 overflow-y-auto p-2 space-y-1 text-xs font-mono mb-4 custom-scroll">
+                    <div id="url-list" class="bg-[#111] border border-gray-800 rounded h-48 overflow-y-auto p-2 space-y-1 custom-scroll">
                         </div>
 
-                    <label class="text-xs font-bold text-gray-500 uppercase mb-2 block">O añadir manualmente</label>
-                    <textarea id="manual-urls" placeholder="https://site.com/url1&#10;https://site.com/url2" 
-                        class="w-full bg-[#151515] border border-gray-700 rounded px-3 py-2 text-xs h-24 focus:border-green-500 outline-none font-mono resize-none"></textarea>
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-600 uppercase mb-1 block">Añadir Manualmente (1 por línea)</label>
+                        <textarea id="manual-urls" placeholder="https://..." 
+                            class="w-full bg-[#151515] border border-gray-700 rounded p-2 text-xs h-20 focus:border-green-500 outline-none font-mono text-gray-400 resize-none"></textarea>
+                    </div>
                 </div>
 
+            </div>
+
+            <div class="p-6 border-t border-gray-800 bg-[#0a0a0a]">
                 <button id="start-btn" disabled 
-                    class="w-full py-4 bg-gray-800 text-gray-500 font-bold rounded cursor-not-allowed transition flex items-center justify-center gap-2">
-                    <i class="ph-fill ph-play"></i> INICIAR AUDITORÍA
+                    class="w-full py-4 bg-gray-800 text-gray-500 font-bold rounded cursor-not-allowed transition flex items-center justify-center gap-2 tracking-wide text-sm shadow-lg">
+                    <i class="ph-fill ph-play-circle text-lg"></i> ESPERANDO INPUT
                 </button>
             </div>
         </aside>
 
-        <main class="flex-1 flex flex-col relative bg-black">
-            <div class="h-1/2 p-6 border-b border-gray-800 relative">
+        <main class="flex-1 flex flex-col bg-black relative">
+            
+            <div class="h-[55%] p-6 border-b border-gray-800 relative bg-[#050505]">
                 <canvas id="topicalGraph"></canvas>
-                <div class="absolute top-6 right-6 flex gap-4">
-                    <div class="bg-black/80 backdrop-blur border border-gray-800 p-3 rounded">
-                        <div class="text-xs text-gray-500 uppercase">Focus Ratio</div>
-                        <div id="metric-focus" class="text-2xl font-mono text-green-400 font-bold">0%</div>
+                
+                <div class="absolute top-6 right-6 flex flex-col gap-2">
+                    <div class="bg-black/90 backdrop-blur border border-gray-800 p-4 rounded shadow-2xl min-w-[140px]">
+                        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Topical Focus</div>
+                        <div id="metric-focus" class="text-3xl font-mono text-green-400 font-bold tracking-tighter">--</div>
                     </div>
-                    <div class="bg-black/80 backdrop-blur border border-gray-800 p-3 rounded">
-                        <div class="text-xs text-gray-500 uppercase">Site Ratio</div>
-                        <div id="metric-ratio" class="text-2xl font-mono text-blue-400 font-bold">0%</div>
+                    <div class="bg-black/90 backdrop-blur border border-gray-800 p-4 rounded shadow-2xl min-w-[140px]">
+                        <div class="text-[10px] text-gray-500 uppercase tracking-widest mb-1">Site Ratio</div>
+                        <div id="metric-ratio" class="text-3xl font-mono text-blue-400 font-bold tracking-tighter">--</div>
                     </div>
                 </div>
             </div>
 
-            <div class="h-1/2 flex flex-col">
-                <div class="bg-[#0a0a0a] px-4 py-2 border-b border-gray-800 flex text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    <div class="w-1/2">URL</div>
-                    <div class="w-1/4">Topic</div>
-                    <div class="w-1/4 text-right">Score</div>
+            <div class="h-[45%] flex flex-col bg-[#080808] pb-48"> <div class="px-6 py-3 border-b border-gray-800 flex text-xs font-bold text-gray-500 uppercase tracking-wider bg-[#0c0c0c]">
+                    <div class="w-1/2">URL Endpoint</div>
+                    <div class="w-1/4">Detected Topic</div>
+                    <div class="w-1/4 text-right">Semantic Score</div>
                 </div>
-                <div id="results-table-body" class="flex-1 overflow-y-auto custom-scroll bg-black/50 text-sm font-mono p-4 space-y-2"></div>
-                
-                <div id="console-output" class="h-32 bg-[#050505] border-t border-gray-800 p-3 font-mono text-xs overflow-y-auto text-gray-400">
-                    <div>> Esperando input...</div>
-                </div>
+                <div id="results-table-body" class="flex-1 overflow-y-auto custom-scroll p-0">
+                    </div>
             </div>
+
         </main>
     </div>
+
+    <footer id="console-footer" class="fixed bottom-0 left-0 w-full bg-[#050505] border-t border-gray-800 z-50 shadow-2xl flex flex-col h-48 transition-all duration-200">
+        <div id="drag-handle" class="w-full h-8 bg-[#111] border-b border-gray-800 flex items-center justify-between px-4 cursor-row-resize select-none hover:bg-[#161616]">
+            <div class="flex items-center gap-2 text-xs text-gray-400 font-mono font-bold">
+                <i class="ph-fill ph-terminal-window text-green-500"></i> SYSTEM LOGS
+            </div>
+            <div class="flex gap-2">
+                <button onclick="document.getElementById('terminal-body').innerHTML=''" class="text-gray-500 hover:text-white"><i class="ph ph-trash"></i></button>
+            </div>
+        </div>
+        <div id="terminal-body" class="flex-grow p-4 font-mono text-xs leading-relaxed overflow-y-auto custom-scroll text-gray-300 bg-black/95">
+            <div class="opacity-50">> System initialized. Waiting for user input...</div>
+        </div>
+    </footer>
 
     <script type="module" src="script.js"></script>
 </body>
