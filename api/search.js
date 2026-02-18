@@ -1,6 +1,7 @@
-const fetch = require('node-fetch');
+import fetch from 'node-fetch';
 
 export default async function handler(req, res) {
+    // Configuración de permisos (CORS)
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
@@ -18,6 +19,7 @@ export default async function handler(req, res) {
     if (!apiKey) return res.status(500).json({ error: 'Falta API Key de Serper' });
 
     try {
+        // Pedimos 20 resultados a Google Serper
         const response = await fetch('https://google.serper.dev/search', {
             method: 'POST',
             headers: {
@@ -30,11 +32,13 @@ export default async function handler(req, res) {
         if (!response.ok) throw new Error(`Serper error: ${response.status}`);
 
         const data = await response.json();
+        // Extraemos solo los enlaces limpios
         const urls = data.organic ? data.organic.map(item => item.link) : [];
-        
-        return res.status(200).json({ success: true, urls });
+
+        return res.status(200).json(urls);
 
     } catch (error) {
+        console.error(error);
         return res.status(500).json({ error: error.message });
     }
 }

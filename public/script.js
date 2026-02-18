@@ -1,286 +1,365 @@
-// CONFIGURACIÓN Y ESTADO
-let state = {
-    domain: '',
-    urls: [],
-    selectedUrls: [],
-    vectors: [],
-    metrics: { focus: 0, radius: 0, ratio: 0 },
-    topics: {},
-    summary: ''
+// ==========================================
+// CONFIGURACIÓN GLOBAL
+// ==========================================
+const CONFIG = {
+    BATCH_SIZE: 3,       // Analizamos 3 URLs simultáneamente (para no saturar)
+    SIMILARITY_THRESHOLD: 0.7, // Umbral para considerar una URL "relevante" (Site Ratio)
+    FOCUS_PERCENTILE: 0.25     // Top 25% para calcular el Focus Ratio
 };
 
-// UTILS & LOGGING
-const consoleOutput = document.getElementById('console-output');
-const terminalBody = document.getElementById('terminal-body');
+// ==========================================
+// ESTADO DE LA APLICACIÓN
+// ==========================================
+let state = {
+    domain: '',
+    urls: [],            // Lista total de URLs descubiertas
+    processedCount: 0,   // Cuántas llevamos analizadas
+    vectors: [],         // Aquí guardamos la data de la IA (topic, vector, sim)
+    centroid: null,      // El "centro de gravedad" del sitio
+    isAnalyzing: false
+};
 
+// Referencias al DOM (Elementos de la pantalla)
+const UI = {
+    input: document.getElementById('domain-input'),
+    btnStart: document.getElementById('start-btn'),
+    console: document.getElementById('console-output'),
+    tableBody: document.getElementById('results-table-body'),
+    terminalBody: document.getElementById('terminal-body'),
+    metrics: {
+        focus: document.getElementById('metric-focus'),
+        ratio: document.getElementById('metric-ratio')
+    }
+};
+
+// ==========================================
+// SISTEMA DE LOGS (Consola estilo Hacker)
+// ==========================================
 function log(message, type = 'info') {
-    if (!consoleOutput) return;
+    if (!UI.console) return;
+    
     const line = document.createElement('div');
     const time = new Date().toLocaleTimeString('es-ES', { hour12: false });
     
-    let color = 'text-green-400';
-    if (type === 'error') color = 'text-red-500';
-    if (type === 'warn') color = 'text-yellow-400';
-    if (type === 'process') color = 'text-neon-pink';
-    if (type === 'data') color = 'text-gray-500 italic';
-
-    line.innerHTML = `<span class="opacity-30 select-none mr-3">[${time}]</span><span class="${color}">${message}</span>`;
-    consoleOutput.appendChild(line);
+    // Colores según el tipo de mensaje
+    let colorClass = 'text-green-400';
+    let icon = '➜';
     
-    if (terminalBody) terminalBody.scrollTop = terminalBody.scrollHeight;
+    if (type === 'error') { colorClass = 'text-red-500'; icon = '✖'; }
+    if (type === 'warn')  { colorClass = 'text-yellow-400'; icon = '⚠'; }
+    if (type === 'process') { colorClass = 'text-blue-400'; icon = '⚙'; }
+    if (type === 'success') { colorClass = 'text-neon-pink font-bold'; icon = '★'; }
+
+    line.className = "mb-1 font-mono text-sm";
+    line.innerHTML = `
+        <span class="opacity-40 select-none mr-2">[${time}]</span>
+        <span class="${colorClass}">${icon} ${message}</span>
+    `;
+    
+    UI.console.appendChild(line);
+    
+    // Auto-scroll hacia abajo
+    if (UI.terminalBody) {
+        UI.terminalBody.scrollTop = UI.terminalBody.scrollHeight;
+    }
 }
 
-function animateValue(id, start, end, duration, isPercent = false) {
+// ==========================================
+// LÓGICA PRINCIPAL (El Cerebro)
+// ==========================================
+
+async function startAnalysis() {
+    // 1. Limpieza y Preparación
+    const domainInput = UI.input.value.trim().replace(/https?:\/\//, '').replace(/\/$/, '');
+    
+    if (!domainInput) {
+        log("Por favor, escribe un dominio válido.", "error");
+        return;
+    }
+
+    // Reset de variables
+    state.domain = domainInput;
+    state.urls = [];
+    state.vectors = [];
+    state.processedCount = 0;
+    state.centroid = null;
+    UI.tableBody.innerHTML = ''; // Limpiar tabla
+    updateChart([]); // Limpiar gráfico
+    
+    log(`Iniciando auditoría para: ${state.domain}`, "success");
+    UI.btnStart.disabled = true;
+    UI.btnStart.innerText = "Auditando...";
+
+    try {
+        // 2. Fase de Descubrimiento (Search)
+        log("Buscando URLs indexadas en Google...", "process");
+        const searchRes = await fetch(`/api/search?domain=${state.domain}`);
+        
+        if (!searchRes.ok) throw new Error("Fallo al buscar URLs");
+        
+        const urlsFound = await searchRes.json();
+        
+        if (!urlsFound || urlsFound.length === 0) {
+            throw new Error("No se encontraron URLs para este dominio.");
+        }
+
+        state.urls = urlsFound;
+        log(`Encontradas ${state.urls.length} URLs. Iniciando análisis profundo...`, "info");
+
+        // 3. Fase de Análisis (Batch Processing)
+        await processUrlsInBatches(state.urls);
+
+        // 4. Finalización
+        log("Auditoría completada exitosamente.", "success");
+        calculateFinalMetrics();
+
+    } catch (error) {
+        log(error.message, "error");
+    } finally {
+        UI.btnStart.disabled = false;
+        UI.btnStart.innerText = "AUDITAR DOMINIO";
+    }
+}
+
+// --- Procesador por Lotes (Optimización de Velocidad) ---
+async function processUrlsInBatches(urls) {
+    // Recorremos las URLs en grupos de 3 (BATCH_SIZE)
+    for (let i = 0; i < urls.length; i += CONFIG.BATCH_SIZE) {
+        const batch = urls.slice(i, i + CONFIG.BATCH_SIZE);
+        const batchNumber = Math.floor(i / CONFIG.BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(urls.length / CONFIG.BATCH_SIZE);
+
+        log(`Procesando bloque ${batchNumber}/${totalBatches} (${batch.length} URLs)...`, "process");
+
+        // Lanzamos las peticiones en paralelo y esperamos a que todas terminen
+        await Promise.all(batch.map(url => analyzeSingleUrl(url)));
+
+        // Actualizamos cálculos intermedios
+        if (state.vectors.length > 0) {
+            calculateCentroid();
+            updateSimilitudes();
+            renderTable();
+            updateChart(state.vectors);
+        }
+
+        // Pequeña pausa para respirar (1 segundo)
+        await new Promise(r => setTimeout(r, 1000));
+    }
+}
+
+// --- Análisis Individual de una URL ---
+async function analyzeSingleUrl(url) {
+    try {
+        const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
+
+        const json = await response.json();
+
+        if (json.success && json.data) {
+            // Guardamos el resultado en el estado
+            state.vectors.push({
+                url: json.data.url,
+                topic: json.data.topic || "Desconocido",
+                vector: json.data.vector,
+                sim: 0 // Se calculará después contra el centroide
+            });
+            log(`Analizado: ${cleanUrl(url)}`, "info");
+        } else {
+            log(`Fallo en ${cleanUrl(url)}: ${json.error || 'Error desconocido'}`, "warn");
+        }
+    } catch (error) {
+        log(`Error de red en ${cleanUrl(url)}`, "error");
+    }
+}
+
+// ==========================================
+// MATEMÁTICAS VECTORIALES
+// ==========================================
+
+// 1. Calcular el Centroide (Promedio de todos los vectores)
+function calculateCentroid() {
+    if (state.vectors.length === 0) return;
+
+    const dim = state.vectors[0].vector.length;
+    let sumVector = new Array(dim).fill(0);
+
+    // Sumar todos los vectores
+    state.vectors.forEach(item => {
+        for (let i = 0; i < dim; i++) {
+            sumVector[i] += item.vector[i];
+        }
+    });
+
+    // Dividir por el número de vectores para sacar el promedio
+    state.centroid = sumVector.map(val => val / state.vectors.length);
+}
+
+// 2. Calcular Similitud Coseno
+function cosineSimilarity(vecA, vecB) {
+    if (!vecA || !vecB) return 0;
+    
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (let i = 0; i < vecA.length; i++) {
+        dotProduct += vecA[i] * vecB[i];
+        normA += vecA[i] * vecA[i];
+        normB += vecB[i] * vecB[i];
+    }
+
+    if (normA === 0 || normB === 0) return 0;
+    return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+// 3. Actualizar similitudes de todas las páginas contra el nuevo centroide
+function updateSimilitudes() {
+    if (!state.centroid) return;
+
+    state.vectors.forEach(item => {
+        item.sim = cosineSimilarity(item.vector, state.centroid);
+    });
+
+    // Ordenamos de mayor a menor similitud
+    state.vectors.sort((a, b) => b.sim - a.sim);
+}
+
+// 4. Calcular Métricas Finales (Focus & Ratio)
+function calculateFinalMetrics() {
+    if (state.vectors.length === 0) return;
+
+    // --- SITE RATIO (% de URLs con sim > 0.7) ---
+    const passing = state.vectors.filter(v => v.sim >= CONFIG.SIMILARITY_THRESHOLD).length;
+    const siteRatio = (passing / state.vectors.length) * 100;
+
+    // --- FOCUS RATIO (Promedio del Top 25%) ---
+    const topCount = Math.max(1, Math.ceil(state.vectors.length * CONFIG.FOCUS_PERCENTILE));
+    const topVectors = state.vectors.slice(0, topCount);
+    const focusSum = topVectors.reduce((acc, curr) => acc + curr.sim, 0);
+    const focusRatio = (focusSum / topCount) * 100;
+
+    // Actualizar UI con animación
+    animateValue("metric-ratio", 0, siteRatio, 1500, true);
+    animateValue("metric-focus", 0, focusRatio, 1500, false); // El focus suele ser 0-1, lo multipliqué x100
+}
+
+// ==========================================
+// INTERFAZ DE USUARIO (Render)
+// ==========================================
+
+function renderTable() {
+    if (!UI.tableBody) return;
+    UI.tableBody.innerHTML = '';
+
+    state.vectors.forEach(item => {
+        const row = document.createElement('tr');
+        const score = (item.sim * 100).toFixed(1);
+        const isPass = item.sim >= CONFIG.SIMILARITY_THRESHOLD;
+        
+        row.className = "border-b border-gray-800 hover:bg-white/5 transition";
+        row.innerHTML = `
+            <td class="p-3 truncate max-w-[200px]" title="${item.url}">${cleanUrl(item.url)}</td>
+            <td class="p-3 text-gray-400">${item.topic}</td>
+            <td class="p-3 font-mono ${isPass ? 'text-green-400' : 'text-red-400'}">${score}%</td>
+            <td class="p-3 text-center">
+                <span class="px-2 py-1 rounded text-xs ${isPass ? 'bg-green-900/30 text-green-300' : 'bg-red-900/30 text-red-300'}">
+                    ${isPass ? 'PASS' : 'FAIL'}
+                </span>
+            </td>
+        `;
+        UI.tableBody.appendChild(row);
+    });
+}
+
+// Helper para limpiar URL visualmente
+function cleanUrl(url) {
+    return url.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+}
+
+// Animación de números
+function animateValue(id, start, end, duration, isPercent) {
     const obj = document.getElementById(id);
     if (!obj) return;
     let startTimestamp = null;
     const step = (timestamp) => {
         if (!startTimestamp) startTimestamp = timestamp;
         const progress = Math.min((timestamp - startTimestamp) / duration, 1);
-        let val = progress * (end - start) + start;
-        obj.innerHTML = isPercent ? Math.floor(val) + '%' : val.toFixed(3);
+        const value = Math.floor(progress * (end - start) + start);
+        obj.innerHTML = value + (isPercent ? "%" : "");
         if (progress < 1) window.requestAnimationFrame(step);
-        else obj.innerHTML = isPercent ? end + '%' : end.toFixed(3);
     };
     window.requestAnimationFrame(step);
 }
 
-// API CALLS
-async function fetchSitemapOrSearch(domain) {
-    try {
-        log(`Backend: Buscando URLs para ${domain}...`, 'process');
-        const res = await fetch(`/api/search?domain=${domain}`);
-        if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
-        const data = await res.json();
-        if (!data.success) throw new Error(data.error);
-        return data.urls || [];
-    } catch (e) {
-        log(`Error Discovery: ${e.message}`, 'error');
-        return [];
-    }
-}
+// ==========================================
+// GRÁFICO (Chart.js)
+// ==========================================
+let scatterChart = null;
 
-async function processUrlBatch(urls) {
-    const results = [];
-    let processed = 0;
-    log(`Procesando lote de ${urls.length} URLs...`, 'info');
-
-    for (const url of urls) {
-        try {
-            log(`Analizando: ${url}...`, 'data');
-            const res = await fetch('/api/analyze', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ url })
-            });
-            const data = await res.json();
-            
-            if (data.success && data.data) {
-                results.push(data.data);
-                processed++;
-            } else {
-                log(`Fallo parcial: ${data.error}`, 'warn');
-            }
-        } catch (e) {
-            log(`Error red: ${e.message}`, 'error');
-        }
-    }
-    log(`Lote completado. Éxito: ${processed}/${urls.length}`, 'process');
-    return results;
-}
-
-// MAIN LOGIC
-async function startDiscovery() {
-    const input = document.getElementById('domainInput');
-    const domain = input.value.trim();
-    if (!domain) { log("Ingresa un dominio.", 'warn'); return; }
-
-    state.domain = domain;
-    resetUI();
-    log(`Iniciando auditoría para: ${domain}`, 'process');
-    
-    const urls = await fetchSitemapOrSearch(domain);
-    if (!urls || urls.length === 0) {
-        log("No se encontraron URLs.", 'error');
-        return;
-    }
-    state.urls = urls;
-    log(`Encontradas ${urls.length} URLs.`, 'info');
-    renderUrlList();
-}
-
-async function analyzeSelected() {
-    const checked = Array.from(document.querySelectorAll('#url-list input:checked')).map(c => c.value);
-    if (checked.length === 0) { alert("Selecciona URLs"); return; }
-    
-    state.selectedUrls = checked;
-    const selSection = document.getElementById('step-selection');
-    if(selSection) selSection.classList.add('opacity-50', 'pointer-events-none');
-    
-    const rawData = await processUrlBatch(checked);
-    if (rawData.length === 0) {
-        log("Fallo crítico en análisis.", 'error');
-        if(selSection) selSection.classList.remove('opacity-50', 'pointer-events-none');
-        return;
-    }
-
-    processVectorsAndMetrics(rawData);
-    renderResultsDashboard();
-}
-
-// MATH
-function cosineSimilarity(vecA, vecB) {
-    if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
-    let dot = 0, normA = 0, normB = 0;
-    for (let i = 0; i < vecA.length; i++) {
-        dot += vecA[i] * vecB[i];
-        normA += vecA[i] * vecA[i];
-        normB += vecB[i] * vecB[i];
-    }
-    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
-
-function processVectorsAndMetrics(rawData) {
-    if (rawData.length === 0) return;
-    const dim = rawData[0].vector.length;
-    const centroid = new Array(dim).fill(0);
-    
-    rawData.forEach(item => { for(let i=0; i<dim; i++) centroid[i] += item.vector[i]; });
-    for(let i=0; i<dim; i++) centroid[i] /= rawData.length;
-
-    state.vectors = rawData.map(item => {
-        const sim = cosineSimilarity(item.vector, centroid);
-        const r = (1 - sim) * 5; 
-        const angle = Math.random() * 6.28;
-        return {
-            url: item.url, sim, topic: item.topic || 'General',
-            x: r * Math.cos(angle), y: r * Math.sin(angle)
-        };
-    });
-
-    const vs = state.vectors;
-    const sorted = [...vs].sort((a,b) => b.sim - a.sim);
-    const top25 = sorted.slice(0, Math.ceil(vs.length * 0.25));
-    const focus = top25.length > 0 ? top25.reduce((a,b) => a+b.sim, 0) / top25.length : 0;
-    
-    const meanDist = vs.reduce((a,v) => a + (1-v.sim), 0) / vs.length;
-    const variance = vs.reduce((a,v) => a + Math.pow((1-v.sim) - meanDist, 2), 0) / vs.length;
-    const radius = Math.sqrt(variance);
-    const ratio = (vs.filter(v => v.sim > 0.7).length / vs.length) * 100;
-
-    state.metrics = { focus: parseFloat(focus.toFixed(3)), radius: parseFloat(radius.toFixed(3)), ratio: Math.round(ratio) };
-    
-    state.topics = {};
-    vs.forEach(v => { state.topics[v.topic] = (state.topics[v.topic] || 0) + 1; });
-    const topTopic = Object.entries(state.topics).sort((a,b) => b[1]-a[1])[0]?.[0] || 'Varios';
-    state.summary = `Entidad: ${state.domain}\nFoco Principal: ${topTopic}\nMetricas: Focus ${state.metrics.focus} | Ratio ${state.metrics.ratio}%`;
-}
-
-// UI
-function resetUI() {
-    document.getElementById('step-selection').classList.add('hidden');
-    document.getElementById('step-results').classList.add('hidden');
-    const dl = document.getElementById('download-btn'); if(dl) dl.classList.add('hidden');
-}
-
-function renderUrlList() {
-    const container = document.getElementById('url-list');
-    if (!container) return;
-    container.innerHTML = '';
-    state.urls.forEach((url, i) => {
-        const isChecked = i < 10 ? 'checked' : '';
-        const html = `<label class="flex items-center gap-3 p-2 hover:bg-white/5 cursor-pointer border-b border-gray-800/50">
-            <input type="checkbox" value="${url}" ${isChecked} class="w-4 h-4 rounded border-gray-600 bg-transparent text-neon-pink focus:ring-0">
-            <span class="text-sm font-mono text-gray-400 truncate w-full">${url}</span></label>`;
-        container.insertAdjacentHTML('beforeend', html);
-    });
-    const s = document.getElementById('step-selection');
-    s.classList.remove('hidden', 'opacity-50', 'pointer-events-none');
-    s.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-function selectAll() { document.querySelectorAll('#url-list input').forEach(c => c.checked = true); }
-
-function renderResultsDashboard() {
-    const res = document.getElementById('step-results');
-    res.classList.remove('hidden');
-    const dl = document.getElementById('download-btn'); if(dl) dl.classList.remove('hidden');
-
-    animateValue('val-focus', 0, state.metrics.focus, 1000);
-    document.getElementById('bar-focus').style.width = (state.metrics.focus * 100) + '%';
-    
-    animateValue('val-radius', 0, state.metrics.radius, 1000);
-    const radPct = Math.max(0, (1 - (state.metrics.radius * 3)) * 100);
-    document.getElementById('bar-radius').style.width = radPct + '%';
-    
-    animateValue('val-ratio', 0, state.metrics.ratio, 1000, true);
-    document.getElementById('bar-ratio').style.width = state.metrics.ratio + '%';
-
-    const verdict = document.getElementById('final-verdict');
-    if (state.metrics.ratio > 75) { verdict.innerText = "EXCELENTE"; verdict.className = "text-xl font-bold text-neon-green"; }
-    else if (state.metrics.ratio > 50) { verdict.innerText = "MODERADO"; verdict.className = "text-xl font-bold text-yellow-400"; }
-    else { verdict.innerText = "RIESGO"; verdict.className = "text-xl font-bold text-red-500"; }
-
-    document.getElementById('ai-summary').innerText = state.summary;
-    const tagCont = document.getElementById('topic-tags'); tagCont.innerHTML = '';
-    Object.keys(state.topics).forEach(t => tagCont.innerHTML += `<span class="topic-badge border-gray-600 text-gray-400">${t}</span>`);
-
-    const tbody = document.getElementById('results-table-body'); tbody.innerHTML = '';
-    state.vectors.sort((a,b) => b.sim - a.sim).forEach(v => {
-        const status = v.sim > 0.7 ? 'text-neon-green' : 'text-red-500';
-        tbody.innerHTML += `<tr class="border-b border-gray-800 hover:bg-white/5"><td class="py-2 pl-2 truncate max-w-[200px]" title="${v.url}">${v.url}</td><td class="text-center text-gray-500 text-xs">${v.topic}</td><td class="text-right font-mono text-white">${v.sim.toFixed(3)}</td><td class="text-right pr-2 font-bold text-xs ${status}">${v.sim > 0.7 ? 'PASS' : 'FAIL'}</td></tr>`;
-    });
-
-    renderChart();
-    res.scrollIntoView({ behavior: 'smooth' });
-}
-
-let chartInstance = null;
-function renderChart() {
-    const ctx = document.getElementById('scatterChart');
+function updateChart(data) {
+    const ctx = document.getElementById('topicalGraph');
     if (!ctx) return;
-    if (chartInstance) chartInstance.destroy();
-    chartInstance = new Chart(ctx, {
-        type: 'scatter',
-        data: {
-            datasets: [{
-                label: 'URLs', data: state.vectors,
-                backgroundColor: c => c.raw?.sim > 0.8 ? '#ffffff' : (c.raw?.sim > 0.6 ? '#00f3ff' : '#ff007f'),
-                pointRadius: 5
-            }, {
-                label: 'Centroide', data: [{x:0, y:0}], pointStyle: 'crossRot', pointRadius: 10, borderColor: 'rgba(255,255,255,0.5)', borderWidth: 2
-            }]
-        },
-        options: { responsive: true, maintainAspectRatio: false, scales: { x: {display:false}, y: {display:false} }, plugins: { legend: {display:false} } }
-    });
+
+    // Mapeamos los datos para el gráfico de dispersión
+    // X = Similitud, Y = Aleatorio (para dispersar visualmente)
+    const chartData = data.map(v => ({
+        x: v.sim, 
+        y: Math.random() * 0.5 + 0.25, // Mantiene los puntos centrados verticalmente
+        url: cleanUrl(v.url),
+        topic: v.topic
+    }));
+
+    if (scatterChart) {
+        scatterChart.data.datasets[0].data = chartData;
+        scatterChart.update();
+    } else {
+        scatterChart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: 'Páginas Analizadas',
+                    data: chartData,
+                    backgroundColor: (ctx) => {
+                        const val = ctx.raw?.x || 0;
+                        return val >= CONFIG.SIMILARITY_THRESHOLD ? '#4ade80' : '#f87171';
+                    },
+                    pointRadius: 6,
+                    pointHoverRadius: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { 
+                        min: 0, 
+                        max: 1, 
+                        grid: { color: '#333' },
+                        title: { display: true, text: 'Coherencia Semántica (Similitud)', color: '#666' }
+                    },
+                    y: { 
+                        display: false, // Ocultamos el eje Y porque es aleatorio
+                        min: 0, 
+                        max: 1 
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.raw.url} (${(ctx.raw.x * 100).toFixed(1)}%)`
+                        }
+                    },
+                    legend: { display: false }
+                }
+            }
+        });
+    }
 }
 
-function downloadExcelReport() {
-    if (!state.domain) return;
-    const ws1 = XLSX.utils.aoa_to_sheet([["BrandRank Report"], ["Dominio", state.domain], ["Focus", state.metrics.focus], ["Ratio", state.metrics.ratio+"%"]]);
-    const ws2 = XLSX.utils.aoa_to_sheet([["URL","Topic","Sim","Status"], ...state.vectors.map(v => [v.url, v.topic, v.sim, v.sim>0.7?"PASS":"FAIL"])]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
-    XLSX.utils.book_append_sheet(wb, ws2, "Detalles");
-    XLSX.writeFile(wb, `${state.domain}_audit.xlsx`);
+// Listener del botón
+if (UI.btnStart) {
+    UI.btnStart.addEventListener('click', startAnalysis);
 }
-
-// Drag Handle
-const handle = document.getElementById('drag-handle');
-const footer = document.getElementById('console-footer');
-if(handle && footer) {
-    let isDragging = false, startY, startHeight;
-    handle.addEventListener('mousedown', (e) => { 
-        if(e.target.closest('button')) return;
-        isDragging = true; startY = e.clientY; startHeight = footer.offsetHeight; 
-        document.body.style.cursor = 'row-resize';
-    });
-    document.addEventListener('mousemove', (e) => { 
-        if(!isDragging) return; 
-        const h = Math.min(Math.max(startHeight + (startY - e.clientY), 35), window.innerHeight * 0.8);
-        footer.style.height = `${h}px`; 
-    });
-    document.addEventListener('mouseup', () => { isDragging = false; document.body.style.cursor = 'default'; });
-}
-
-log("Sistema v2.0 Inicializado.", 'info');
