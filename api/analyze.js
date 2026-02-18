@@ -1,103 +1,126 @@
+const cheerio = require('cheerio');
 const fetch = require('node-fetch');
 
-// LISTA DE CANDIDATOS A PROBAR (Fuerza Bruta)
-const CANDIDATE_MODELS = [
-    "models/text-embedding-004",
-    "text-embedding-004",
-    "models/embedding-001",
-    "embedding-001"
-];
+// CONFIGURACIÓN OFICIAL
+const API_VERSION = "v1beta";
+const EMBEDDING_MODEL = "text-embedding-004"; 
+const GENERATIVE_MODEL = "gemini-1.5-flash";   
 
 export default async function handler(req, res) {
-    // 1. Configuración básica (CORS)
+    // 1. Configuración CORS
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
     const { url } = req.body;
     const scraperKey = process.env.SCRAPERAPI_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
 
-    if (!geminiKey) return res.status(500).json({ error: 'Falta GEMINI_API_KEY' });
+    if (!scraperKey || !geminiKey) return res.status(500).json({ error: 'Faltan API Keys en Vercel' });
 
     try {
-        // --- PARTE 1: SCRAPING (Tu versión optimizada de Metadatos) ---
-        // (Si esto falla, ponemos datos falsos para probar solo la IA)
-        let textToAnalyze = "Test de conexión";
-        let title = "Test Mode";
+        // --- PASO 1: SCRAPING DE METADATOS (Estrategia Rápida) ---
+        // console.log(`[DEBUG] Procesando: ${url}`);
         
-        if (scraperKey && url) {
-            try {
-                const scraperUrl = `http://api.scraperapi.com?api_key=${scraperKey}&url=${encodeURIComponent(url)}&render=false`;
-                const sRes = await fetch(scraperUrl);
-                if (sRes.ok) {
-                    const html = await sRes.text();
-                    // Extracción básica sin cheerio para evitar errores si la librería falla
-                    const tMatch = html.match(/<title>(.*?)<\/title>/i);
-                    title = tMatch ? tMatch[1] : url;
-                    textToAnalyze = `URL: ${url} Title: ${title}`;
-                }
-            } catch (e) {
-                console.log("Scraping falló, usando datos dummy para probar IA");
-            }
+        // Estrategia: "Low Cost & High Speed". No renderizamos JS.
+        const scraperUrl = `http://api.scraperapi.com?api_key=${scraperKey}&url=${encodeURIComponent(url)}&render=false`;
+        
+        const scrapeRes = await fetch(scraperUrl);
+        if (!scrapeRes.ok) throw new Error(`ScraperAPI Error: ${scrapeRes.status}`);
+        
+        const html = await scrapeRes.text();
+        const $ = cheerio.load(html);
+
+        // Extracción robusta de lo que realmente importa para SEO
+        const title = $('title').text().trim() || '';
+        const description = $('meta[name="description"]').attr('content') || '';
+        // Buscamos H1, si falla H2, si falla OpenGraph Title
+        const h1 = $('h1').first().text().trim() || $('h2').first().text().trim() || $('meta[property="og:title"]').attr('content') || '';
+
+        // Texto condensado para la IA
+        const textToAnalyze = `
+        URL: ${url}
+        Title: ${title}
+        Description: ${description}
+        Main Header: ${h1}
+        `.trim();
+
+        // Si después de todo esto no hay texto (menos de 10 chars), la web está muerta o bloqueada totalmente
+        if (textToAnalyze.length < 15) {
+             return res.status(200).json({ success: false, error: "Contenido ilegible o vacío" });
         }
 
-        // --- PARTE 2: FUERZA BRUTA CON GOOGLE ---
-        let vector = [];
-        let usedModel = "";
-        let lastError = "";
+        // --- PASO 2: INTELIGENCIA ARTIFICIAL (GOOGLE) ---
 
-        // Probamos los modelos uno por uno
-        for (const modelName of CANDIDATE_MODELS) {
-            try {
-                console.log(`Intentando con modelo: ${modelName}...`);
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/${modelName}:embedContent?key=${geminiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        content: { parts: [{ text: textToAnalyze }] }
-                    })
-                });
-
-                const data = await response.json();
-
-                if (response.ok && data.embedding) {
-                    vector = data.embedding.values;
-                    usedModel = modelName;
-                    console.log(`¡ÉXITO! Modelo funcional encontrado: ${modelName}`);
-                    break; // ¡Funcionó! Salimos del bucle
-                } else {
-                    lastError = data.error?.message || response.statusText;
-                    console.log(`Fallo con ${modelName}: ${lastError}`);
-                }
-            } catch (err) {
-                console.log(`Error de red con ${modelName}: ${err.message}`);
-            }
-        }
-
-        if (vector.length === 0) {
-            // Si llegamos aquí, NINGUNO funcionó.
-            return res.status(200).json({ // Usamos 200 para que el frontend muestre el mensaje
-                success: false,
-                error: `Fallo total de IA. Último error: ${lastError}. Revisa que la API 'Generative Language API' esté habilitada en Google Cloud.`
+        const callGoogle = async (endpoint, body) => {
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
             });
+            const data = await response.json();
+            if (!response.ok) {
+                const msg = data.error ? data.error.message : response.statusText;
+                throw new Error(`Google API Error (${data.error?.code || response.status}): ${msg}`);
+            }
+            return data;
+        };
+
+        // A) VECTORES (Embedding)
+        let vector = [];
+        try {
+            const embedUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${EMBEDDING_MODEL}:embedContent?key=${geminiKey}`;
+            
+            const data = await callGoogle(embedUrl, {
+                content: { parts: [{ text: textToAnalyze }] }
+            });
+            
+            if (data.embedding && data.embedding.values) {
+                vector = data.embedding.values;
+            } else {
+                throw new Error("Vector vacío recibido de Google");
+            }
+        } catch (e) {
+            console.error("Error Embedding:", e.message);
+            // Si falla, devolvemos el error exacto para que lo veas en pantalla
+            throw new Error(`Fallo IA: ${e.message}`);
         }
 
-        // --- PARTE 3: ÉXITO ---
+        // B) CLASIFICACIÓN (Topic y Resumen)
+        let aiData = { topic: "General", summary: title };
+        try {
+            const genUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${GENERATIVE_MODEL}:generateContent?key=${geminiKey}`;
+            const prompt = `Analiza estos metadatos SEO.
+            Responde SOLO JSON válido: {"topic": "Tema Principal (2-3 palabras)", "summary": "Resumen muy breve"}.
+            Datos: ${textToAnalyze}`;
+
+            const data = await callGoogle(genUrl, { contents: [{ parts: [{ text: prompt }] }] });
+            let raw = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (raw) {
+                raw = raw.replace(/```json|```/g, '').trim(); // Limpieza de markdown
+                aiData = JSON.parse(raw);
+            }
+        } catch (e) {
+            // El resumen es secundario, no rompemos el flujo si falla
+            console.warn("Fallo resumen:", e.message);
+        }
+
         return res.status(200).json({
             success: true,
             data: {
-                url: url || "test-url",
-                vector: vector,
-                topic: `Modelo: ${usedModel}`, // Te dirá cuál funcionó
-                summary: title
+                url,
+                vector,
+                topic: aiData.topic,
+                summary: aiData.summary
             }
         });
 
     } catch (error) {
-        return res.status(500).json({ success: false, error: `Crash del servidor: ${error.message}` });
+        console.error("SERVER ERROR:", error.message);
+        return res.status(500).json({ success: false, error: error.message });
     }
 }
