@@ -13,7 +13,7 @@ export default async function handler(req, res) {
     const { domain } = req.query;
     if (!domain) return res.status(400).json({ error: 'Falta el dominio' });
 
-    // Normalizamos el dominio (quitamos https://, www., etc para la búsqueda)
+    // Limpieza del dominio
     const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
     const baseUrl = `https://${cleanDomain}`;
 
@@ -21,13 +21,12 @@ export default async function handler(req, res) {
         let urls = [];
         let source = '';
 
-        // --- PLAN A: BUSCAR SITEMAPS COMUNES ---
-        // Lista de lugares donde suelen esconderse los mapas
+        // --- PLAN A: SITEMAP (Con camuflaje de navegador) ---
         const sitemapVariations = [
+            '/sitemap_index.xml',  // <--- El más común en WordPress modernos
             '/sitemap.xml',
-            '/wp-sitemap.xml', // WordPress moderno
-            '/sitemap_index.xml', // Yoast SEO / RankMath
-            '/sitemap/sitemap.xml' // Shopify a veces
+            '/wp-sitemap.xml',
+            '/sitemap/sitemap.xml'
         ];
 
         console.log(`[SEARCH] Buscando sitemaps en ${cleanDomain}...`);
@@ -35,45 +34,59 @@ export default async function handler(req, res) {
         for (const path of sitemapVariations) {
             try {
                 const target = `${baseUrl}${path}`;
-                const resp = await fetch(target, { timeout: 5000 }); // 5s timeout para no bloquear
-                
-                if (resp.ok && resp.headers.get('content-type')?.includes('xml')) {
-                    const xml = await resp.text();
-                    const $ = cheerio.load(xml, { xmlMode: true });
-                    
-                    // Extraer URLs (loc)
-                    $('loc').each((i, el) => {
-                        const link = $(el).text().trim();
-                        // Filtros básicos: solo http/s y evitamos imágenes o pdfs en el listado principal
-                        if (link.startsWith('http') && !link.match(/\.(jpg|png|pdf|xml|css|js)$/i)) {
-                            urls.push(link);
-                        }
-                    });
+                // console.log(`[DEBUG] Probando: ${target}`);
 
-                    if (urls.length > 0) {
-                        source = `Sitemap (${path})`;
-                        console.log(`[SEARCH] ¡Sitemap encontrado! ${urls.length} URLs en ${path}`);
-                        break; // ¡Ya tenemos URLs! Dejamos de buscar
+                // HACEMOS LA PETICIÓN DISFRAZADOS DE CHROME
+                const resp = await fetch(target, { 
+                    timeout: 8000,
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
                     }
+                });
+                
+                if (resp.ok) {
+                    const xml = await resp.text();
+                    
+                    // Validación simple: ¿Parece XML?
+                    if (xml.trim().startsWith('<?xml') || xml.includes('<urlset') || xml.includes('<sitemapindex')) {
+                        const $ = cheerio.load(xml, { xmlMode: true });
+                        
+                        // Estrategia Doble: Buscar URLs directas (<loc>) 
+                        // Nota: Si es un índice de sitemaps, esto agarrará las URLs de los sub-sitemaps. 
+                        // Para esta versión simple, está bien, o podemos refinarlo.
+                        $('loc').each((i, el) => {
+                            const link = $(el).text().trim();
+                            // Filtramos basura (imágenes, css, json)
+                            if (link.startsWith('http') && !link.match(/\.(jpg|jpeg|png|gif|webp|pdf|xml|css|js|json)$/i)) {
+                                urls.push(link);
+                            }
+                        });
+
+                        if (urls.length > 0) {
+                            source = `Sitemap (${path})`;
+                            console.log(`[SEARCH] ¡Sitemap capturado! ${urls.length} URLs en ${path}`);
+                            break; // ¡Éxito! Salimos del bucle
+                        }
+                    }
+                } else {
+                    console.log(`[DEBUG] Falló ${path}: Status ${resp.status}`);
                 }
             } catch (e) {
-                // Si falla uno, probamos el siguiente silenciosamente
+                console.log(`[DEBUG] Error conectando a ${path}: ${e.message}`);
             }
         }
 
-        // Limpieza de duplicados y recorte (máximo 100 para no explotar la API después)
-        urls = [...new Set(urls)].slice(0, 100);
-
-        // --- PLAN B: SI NO HAY SITEMAP, USAMOS SERPER (Google Search) ---
+        // --- PLAN B: SERPER (Solo si falló el sitemap) ---
         if (urls.length === 0) {
-            console.log("[SEARCH] No hay sitemap. Activando Plan B (Serper)...");
+            console.log("[SEARCH] Sitemaps fallaron. Activando Plan B (Serper)...");
             const apiKey = process.env.SERPER_API_KEY;
             
             if (apiKey) {
                 const serperRes = await fetch('https://google.serper.dev/search', {
                     method: 'POST',
                     headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ q: `site:${cleanDomain}`, num: 20 }) // Pedimos 20
+                    body: JSON.stringify({ q: `site:${cleanDomain}`, num: 20 })
                 });
                 
                 if (serperRes.ok) {
@@ -85,6 +98,9 @@ export default async function handler(req, res) {
                 }
             }
         }
+
+        // Limpieza final: Quitar duplicados y limitar a 100 para no explotar la API de IA
+        urls = [...new Set(urls)].slice(0, 100);
 
         return res.status(200).json({ 
             success: true, 
