@@ -1,13 +1,23 @@
-const fetch = require('node-fetch');
+// api/analyze.js - Usando fetch nativo y Gemini Flash
+
 const cheerio = require('cheerio');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 export default async function handler(req, res) {
-    if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
+    // Headers CORS
+    res.setHeader('Access-Control-Allow-Credentials', true);
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+
+    if (req.method === 'OPTIONS') {
+        res.status(200).end();
+        return;
+    }
+
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
     const { url, domain } = req.body;
     
-    // Configuración APIs
     const scraperKey = process.env.SCRAPERAPI_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
 
@@ -15,38 +25,57 @@ export default async function handler(req, res) {
 
     try {
         // 1. SCRAPING
-        // Usamos ScraperAPI para evitar bloqueos
         const scraperUrl = `http://api.scraperapi.com?api_key=${scraperKey}&url=${encodeURIComponent(url)}&render=false`;
         const scrapeRes = await fetch(scraperUrl);
+        
+        if (!scrapeRes.ok) throw new Error(`Scraper error: ${scrapeRes.status}`);
+        
         const html = await scrapeRes.text();
 
-        // 2. CLEANING (Cheerio)
+        // 2. CLEANING
         const $ = cheerio.load(html);
-        $('script, style, nav, footer, iframe').remove();
-        const text = $('body').text().replace(/\s+/g, ' ').trim().substring(0, 8000); // Limitamos tokens
+        $('script, style, nav, footer, iframe, svg').remove();
+        // Limitamos texto para no saturar tokens
+        const text = $('body').text().replace(/\s+/g, ' ').trim().substring(0, 5000); 
 
-        if (text.length < 50) throw new Error("Contenido insuficiente");
+        if (text.length < 50) {
+            return res.status(200).json({ success: false, error: "Contenido insuficiente o bloqueado" });
+        }
 
-        // 3. VECTORIZACIÓN (Gemini)
+        // 3. GEMINI AI
         const genAI = new GoogleGenerativeAI(geminiKey);
-        const model = genAI.getGenerativeModel({ model: "embedding-001" });
-        
-        const result = await model.embedContent(text);
-        const vector = result.embedding.values;
 
-        // 4. CLASIFICACIÓN SIMPLE (Opcional: Pedir a Gemini que clasifique el texto)
-        // Para ahorrar tiempo/tokens, por ahora devolvemos 'General' o analizamos palabras clave simples
-        let topic = 'General';
-        if (text.toLowerCase().includes('seo')) topic = 'SEO';
-        // (Aquí podrías hacer otra llamada a Gemini Flash para clasificar el texto)
+        // A) Vectorización (Usamos modelo de embeddings específico)
+        const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
+        const embedResult = await embedModel.embedContent(text);
+        const vector = embedResult.embedding.values;
+
+        // B) Clasificación y Resumen (Usamos modelo Flash Generativo)
+        const genModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const prompt = `Analiza este texto extraído de ${url}. 
+        1. Identifica el tema principal en 1 o 2 palabras (ej: SEO, Cocina, Finanzas).
+        2. Resume de qué trata en 1 frase corta.
+        Responde SOLO en formato JSON así: {"topic": "Tema", "summary": "Resumen corto"}`;
+        
+        const genResult = await genModel.generateContent(prompt);
+        const responseText = genResult.response.text();
+        
+        // Limpieza básica del JSON por si el modelo añade markdown
+        let aiData = { topic: "General", summary: "Análisis pendiente" };
+        try {
+            const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+            aiData = JSON.parse(cleanJson);
+        } catch (e) {
+            console.error("Error parsing JSON from Gemini", e);
+        }
 
         return res.status(200).json({
             success: true,
             data: {
                 url,
                 vector,
-                topic, // Podrías mejorar esto con otra llamada a Gemini
-                summary: text.substring(0, 100) + '...'
+                topic: aiData.topic,
+                summary: aiData.summary
             }
         });
 
