@@ -1,52 +1,81 @@
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder"></script>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>BrandRank AI - Semantic Engine</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&family=Fira+Code&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/universal-sentence-encoder"></script>
+    <style>
+        body { background: #050505; color: #e5e5e5; font-family: 'Montserrat', sans-serif; }
+        .custom-scroll::-webkit-scrollbar { width: 5px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #333; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+    <header class="h-14 border-b border-gray-800 bg-[#0a0a0a] flex items-center px-6 justify-between">
+        <div class="font-bold text-lg text-neon-pink flex items-center gap-2"><i class="ph-fill ph-target"></i> BRANDRANK AI</div>
+        <div id="ai-status" class="text-[10px] font-mono text-yellow-500 uppercase tracking-widest italic">Cargando IA Local...</div>
+    </header>
 
-<body class="h-screen bg-dark-bg text-white overflow-hidden flex flex-col">
-    <aside class="w-80 bg-panel-bg border-r border-gray-800 p-6 flex flex-col gap-6 overflow-y-auto custom-scroll">
-        <div>
-            <label class="text-[10px] font-bold text-gray-500 uppercase">1. Dominio</label>
-            <div class="flex gap-2 mt-2">
-                <input type="text" id="domain-input" class="bg-black border border-gray-700 rounded p-2 text-xs flex-1 outline-none" placeholder="ejemplo.com">
-                <button id="search-btn" class="bg-gray-800 p-2 rounded hover:bg-neon-pink transition"><i class="ph ph-magnifying-glass"></i></button>
-            </div>
-        </div>
-
-        <div id="selection-area" class="hidden space-y-3">
-            <div class="flex justify-between items-center border-b border-gray-800 pb-2">
-                <label class="text-[10px] font-bold text-gray-500 uppercase">2. Seleccionar (Máx 10)</label>
-                <button id="toggle-all" class="text-[9px] text-neon-blue underline">TODO</button>
-            </div>
-            <div id="url-list" class="space-y-1 max-h-40 overflow-y-auto custom-scroll text-[10px] font-mono"></div>
-            
-            <div>
-                <label class="text-[10px] font-bold text-gray-500 uppercase block mb-1">Añadir Manual</label>
+    <div class="flex flex-1 overflow-hidden">
+        <aside class="w-80 bg-[#0c0c0c] border-r border-gray-800 p-6 flex flex-col gap-6">
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">1. Descubrimiento</label>
                 <div class="flex gap-1">
-                    <input type="text" id="manual-url" class="bg-black border border-gray-700 rounded p-1 text-[10px] flex-1 outline-none" placeholder="https://...">
-                    <button id="add-manual-btn" class="bg-gray-700 px-2 rounded text-[10px]">Añadir</button>
+                    <input type="text" id="domain-input" placeholder="dominio.com" class="bg-black border border-gray-800 rounded p-2 text-xs flex-1 outline-none focus:border-neon-pink">
+                    <button id="search-btn" class="bg-gray-800 p-2 rounded hover:bg-neon-pink transition"><i class="ph ph-magnifying-glass"></i></button>
                 </div>
             </div>
 
-            <button id="start-btn" class="w-full py-3 bg-neon-pink text-white font-bold rounded shadow-lg shadow-pink-900/20 disabled:opacity-50">ANALIZAR SELECCIÓN</button>
-        </div>
-    </aside>
+            <div class="space-y-2">
+                <label class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">2. Entrada Manual</label>
+                <input type="text" id="manual-url" placeholder="https://..." class="w-full bg-black border border-gray-800 rounded p-2 text-xs outline-none focus:border-neon-pink">
+                <button id="add-manual-btn" class="w-full py-2 bg-gray-800 text-[10px] font-bold rounded border border-gray-700 hover:border-neon-pink transition">CONFIRMAR URL</button>
+            </div>
 
-    <main class="flex-1 flex flex-col">
-        <div class="h-1/2 p-6 border-b border-gray-800 relative">
-            <canvas id="topicalGraph"></canvas>
-            <div class="absolute top-6 right-6 flex gap-4">
-                <div class="bg-black border border-gray-800 p-3 rounded">
-                    <div class="text-[10px] text-gray-500 uppercase">Site Focus</div>
-                    <div id="metric-focus" class="text-2xl font-mono text-neon-pink">0%</div>
+            <div id="selection-area" class="flex-1 flex flex-col gap-2 min-h-0 border-t border-gray-800 pt-4 hidden">
+                <div class="flex justify-between items-center text-[10px] font-bold">
+                    <span class="text-gray-500 uppercase">Selección (Máx 10)</span>
+                    <span id="selected-count" class="text-neon-pink">0/10</span>
+                </div>
+                <div id="url-list" class="flex-1 overflow-y-auto custom-scroll space-y-1 pr-2"></div>
+                <button id="start-btn" disabled class="w-full py-4 bg-gray-800 text-gray-500 font-bold rounded text-sm tracking-widest shadow-lg transition-all">ANALIZAR SELECCIÓN</button>
+            </div>
+        </aside>
+
+        <main class="flex-1 bg-black flex flex-col">
+            <div class="h-1/2 p-6 border-b border-gray-800 relative">
+                <canvas id="topicalGraph"></canvas>
+                <div class="absolute top-6 right-6 flex gap-3">
+                    <div class="bg-black/80 border border-gray-800 p-3 rounded text-center min-w-[100px]">
+                        <div class="text-[9px] text-gray-500 uppercase">Site Focus</div>
+                        <div id="metric-focus" class="text-2xl font-mono text-neon-pink">0%</div>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="h-1/2 overflow-auto" id="results-table">
+            <div class="h-1/2 overflow-auto custom-scroll">
+                <table class="w-full text-left text-[11px] font-mono">
+                    <thead class="bg-[#0c0c0c] sticky top-0 text-gray-500 uppercase border-b border-gray-800">
+                        <tr>
+                            <th class="p-4">URL Endpoint</th>
+                            <th class="p-4">Topic</th>
+                            <th class="p-4 text-right">Similarity Score</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-table"></tbody>
+                </table>
             </div>
-    </main>
+        </main>
+    </div>
 
-    <footer class="h-32 bg-black border-t border-gray-800 p-4 font-mono text-xs text-green-500 overflow-y-auto" id="terminal">
-        > Sistema listo. Esperando dominio...
+    <footer id="terminal" class="h-32 bg-black border-t border-gray-800 p-4 font-mono text-[11px] text-green-500 overflow-y-auto custom-scroll">
+        <div class="opacity-50">> System ready. Waiting for target domain...</div>
     </footer>
 
     <script type="module" src="script.js"></script>
 </body>
+</html>
