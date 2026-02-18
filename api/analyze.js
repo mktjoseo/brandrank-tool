@@ -1,13 +1,15 @@
-// api/analyze.js - Usando fetch nativo y Gemini Flash
-
 const cheerio = require('cheerio');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 export default async function handler(req, res) {
-    // Headers CORS
+    // Headers para evitar problemas de CORS
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+    res.setHeader(
+        'Access-Control-Allow-Headers',
+        'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    );
 
     if (req.method === 'OPTIONS') {
         res.status(200).end();
@@ -24,7 +26,7 @@ export default async function handler(req, res) {
     if (!scraperKey || !geminiKey) return res.status(500).json({ error: 'Faltan API Keys' });
 
     try {
-        // 1. SCRAPING
+        // 1. SCRAPING (ScraperAPI)
         const scraperUrl = `http://api.scraperapi.com?api_key=${scraperKey}&url=${encodeURIComponent(url)}&render=false`;
         const scrapeRes = await fetch(scraperUrl);
         
@@ -32,11 +34,10 @@ export default async function handler(req, res) {
         
         const html = await scrapeRes.text();
 
-        // 2. CLEANING
+        // 2. CLEANING (Cheerio)
         const $ = cheerio.load(html);
         $('script, style, nav, footer, iframe, svg').remove();
-        // Limitamos texto para no saturar tokens
-        const text = $('body').text().replace(/\s+/g, ' ').trim().substring(0, 5000); 
+        const text = $('body').text().replace(/\s+/g, ' ').trim().substring(0, 8000); 
 
         if (text.length < 50) {
             return res.status(200).json({ success: false, error: "Contenido insuficiente o bloqueado" });
@@ -45,22 +46,29 @@ export default async function handler(req, res) {
         // 3. GEMINI AI
         const genAI = new GoogleGenerativeAI(geminiKey);
 
-        // A) Vectorización (Usamos modelo de embeddings específico)
-        const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
+        // A) Vectorización: Usamos text-embedding-004 pero forzando la API v1beta
+        // IMPORTANTE: gemini-2.5-flash NO genera vectores, solo texto. 
+        // Para vectores necesitamos un modelo de "embedding".
+        const embedModel = genAI.getGenerativeModel({ 
+            model: "text-embedding-004" 
+        }, { apiVersion: "v1beta" }); // <--- ESTO ARREGLA EL ERROR 404
+
         const embedResult = await embedModel.embedContent(text);
         const vector = embedResult.embedding.values;
 
-        // B) Clasificación y Resumen (Usamos modelo Flash Generativo)
-        const genModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        const prompt = `Analiza este texto extraído de ${url}. 
-        1. Identifica el tema principal en 1 o 2 palabras (ej: SEO, Cocina, Finanzas).
-        2. Resume de qué trata en 1 frase corta.
-        Responde SOLO en formato JSON así: {"topic": "Tema", "summary": "Resumen corto"}`;
+        // B) Resumen: Usamos el modelo gemini-2.5-flash
+        const genModel = genAI.getGenerativeModel({ 
+            model: "gemini-2.5-flash" 
+        }, { apiVersion: "v1beta" });
+
+        const prompt = `Analiza este contenido de ${url}. 
+        Responde SOLO un JSON válido con este formato: {"topic": "Tema Principal (1-2 palabras)", "summary": "Resumen de 1 linea"}.
+        Texto: ${text.substring(0, 2000)}`;
         
         const genResult = await genModel.generateContent(prompt);
         const responseText = genResult.response.text();
         
-        // Limpieza básica del JSON por si el modelo añade markdown
+        // Limpieza de JSON
         let aiData = { topic: "General", summary: "Análisis pendiente" };
         try {
             const cleanJson = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -80,7 +88,7 @@ export default async function handler(req, res) {
         });
 
     } catch (error) {
-        console.error(error);
+        console.error("Backend Error:", error);
         return res.status(500).json({ success: false, error: error.message });
     }
 }
