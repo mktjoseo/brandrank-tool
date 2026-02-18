@@ -1,5 +1,6 @@
+const fetch = require('node-fetch');
+
 export default async function handler(req, res) {
-    // Configuración de permisos (CORS) para que el frontend pueda llamar aquí
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
@@ -11,11 +12,10 @@ export default async function handler(req, res) {
     }
 
     const { domain } = req.query;
-
     if (!domain) return res.status(400).json({ error: 'Falta el dominio' });
 
     const apiKey = process.env.SERPER_API_KEY;
-    if (!apiKey) return res.status(500).json({ error: 'Falta API Key de Serper en Vercel' });
+    if (!apiKey) return res.status(500).json({ error: 'Falta API Key de Serper' });
 
     try {
         const response = await fetch('https://google.serper.dev/search', {
@@ -24,10 +24,7 @@ export default async function handler(req, res) {
                 'X-API-KEY': apiKey,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                q: `site:${domain}`,
-                num: 20
-            })
+            body: JSON.stringify({ q: `site:${domain}`, num: 20 })
         });
 
         if (!response.ok) throw new Error(`Serper error: ${response.status}`);

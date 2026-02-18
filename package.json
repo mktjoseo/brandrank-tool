@@ -1,8 +1,9 @@
 {
   "name": "brandrank-tool",
-  "version": "2.0.0",
+  "version": "1.0.5",
   "dependencies": {
     "cheerio": "^1.0.0",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "node-fetch": "^2.6.7"
   }
 }
