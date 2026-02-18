@@ -1,0 +1,10 @@
+{
+  "name": "brandrank-tool",
+  "version": "1.0.0",
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "cheerio": "^1.0.0-rc.12",
+    "@google/generative-ai": "^0.2.0",
+    "dotenv": "^16.4.5"
+  }
+}
