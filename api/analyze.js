@@ -2,7 +2,8 @@ const cheerio = require('cheerio');
 const fetch = require('node-fetch');
 
 const API_VERSION = "v1beta";
-const EMBEDDING_MODEL = "text-embedding-004"; 
+// CLAVE 1: Modelo idéntico al que funcionó en Colab
+const EMBEDDING_MODEL = "gemini-embedding-001"; 
 const GENERATIVE_MODEL = "gemini-1.5-flash";   
 
 export default async function handler(req, res) {
@@ -20,7 +21,7 @@ export default async function handler(req, res) {
     if (!scraperKey || !geminiKey) return res.status(500).json({ error: 'Faltan API Keys' });
 
     try {
-        // 1. SCRAPING
+        // --- 1. SCRAPING (Clon de Python: descargar_y_parsear) ---
         const scraperUrl = `http://api.scraperapi.com?api_key=${scraperKey}&url=${encodeURIComponent(url)}&render=false`;
         const scrapeRes = await fetch(scraperUrl);
         if (!scrapeRes.ok) throw new Error(`Scraper status: ${scrapeRes.status}`);
@@ -28,16 +29,26 @@ export default async function handler(req, res) {
         const html = await scrapeRes.text();
         const $ = cheerio.load(html);
 
-        const title = $('title').text().trim();
-        const description = $('meta[name="description"]').attr('content') || '';
-        const h1 = $('h1').first().text().trim() || $('h2').first().text().trim();
+        // Extracción idéntica al Colab
+        const title = $('title').text().trim() || 'Sin título';
+        const h1 = $('h1').first().text().trim() || '';
+        
+        let snippet = '';
+        $('p').each((i, el) => {
+            // Limpiamos los espacios múltiples
+            const texto = $(el).text().replace(/\s+/g, ' ').trim();
+            // Lógica: Si el párrafo tiene más de 80 chars, lo guardamos y rompemos el bucle
+            if (texto.length > 80 && !snippet) {
+                snippet = texto;
+            }
+        });
 
-        // LOGGING: Esto es lo que verá tu consola negra
-        const textToAnalyze = `URL: ${url}\nTitle: ${title}\nDesc: ${description}\nMain H1: ${h1}`.trim();
+        // Combinamos la info para la IA (Title > H1 > Snippet)
+        const textToAnalyze = `Title: ${title}\nH1: ${h1}\nSnippet: ${snippet}`.trim();
 
-        if (textToAnalyze.length < 20) throw new Error("Contenido vacío (Scraping falló)");
+        if (textToAnalyze.length < 20) throw new Error("Contenido vacío (Web bloqueada o puro JS)");
 
-        // 2. IA (Google)
+        // --- 2. IA (Google AI Studio) ---
         const callGoogle = async (endpoint, body) => {
             const response = await fetch(endpoint, {
                 method: 'POST',
@@ -49,21 +60,28 @@ export default async function handler(req, res) {
             return data;
         };
 
-        // A) VECTOR
+        // A) VECTORES (Usando el modelo 001 del Colab)
         const embedUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${EMBEDDING_MODEL}:embedContent?key=${geminiKey}`;
         const embedData = await callGoogle(embedUrl, {
-            content: { parts: [{ text: textToAnalyze }] }
+            // Importante: El modelo 001 requiere que especifiquemos el modelo dentro del body también
+            model: `models/${EMBEDDING_MODEL}`,
+            content: { parts: [{ text: textToAnalyze }] },
+            taskType: "SEMANTIC_SIMILARITY" 
         });
 
-        // B) TOPIC (Resumen)
+        if (!embedData.embedding || !embedData.embedding.values) {
+            throw new Error("Google devolvió un objeto sin valores de vector.");
+        }
+
+        // B) CLASIFICACIÓN (Resumen corto)
         let aiData = { topic: "General", summary: title };
         try {
             const genUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${GENERATIVE_MODEL}:generateContent?key=${geminiKey}`;
-            const prompt = `Analiza: ${textToAnalyze}. Responde JSON: {"topic": "Tema (max 2 palabras)", "summary": "De qué trata (1 frase)"}`;
+            const prompt = `Analiza este extracto web: ${textToAnalyze}. Responde SOLO un JSON válido: {"topic": "Tema Principal (1-2 palabras)", "summary": "Resumen muy breve (1 linea)"}`;
             const genData = await callGoogle(genUrl, { contents: [{ parts: [{ text: prompt }] }] });
             let raw = genData.candidates?.[0]?.content?.parts?.[0]?.text;
             if (raw) aiData = JSON.parse(raw.replace(/```json|```/g, '').trim());
-        } catch(e) {}
+        } catch(e) { console.warn("Fallo resumen:", e.message); }
 
         return res.status(200).json({
             success: true,
@@ -72,7 +90,7 @@ export default async function handler(req, res) {
                 vector: embedData.embedding.values,
                 topic: aiData.topic,
                 summary: aiData.summary,
-                debug_text: textToAnalyze // Enviamos el texto crudo para verificar
+                debug_text: textToAnalyze // Lo pasamos al frontend para el log
             }
         });
 

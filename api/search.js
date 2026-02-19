@@ -12,16 +12,14 @@ export default async function handler(req, res) {
     let { domain } = req.query;
     if (!domain) return res.status(400).json({ error: 'Falta el dominio' });
 
-    // 1. Limpieza agresiva del dominio para evitar "///"
     domain = domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/$/, '');
-    const baseUrl = `https://${domain}`; // Base limpia: https://violinista.online
+    const baseUrl = `https://${domain}`; 
 
     try {
         let urls = [];
         let source = '';
         let logs = []; 
 
-        // --- PLAN A: SITEMAP ---
         const sitemapVariations = [
             '/sitemap_index.xml',
             '/sitemap.xml',
@@ -44,21 +42,9 @@ export default async function handler(req, res) {
                         const $ = cheerio.load(xml, { xmlMode: true });
                         $('loc').each((i, el) => {
                             let link = $(el).text().trim();
-                            
-                            // 2. CORRECCIÓN DE URLS ROTAS
-                            // Si el link es solo "/blog", le pegamos la base
-                            if (link.startsWith('/')) {
-                                link = `${baseUrl}${link}`;
-                            }
-                            // Si no tiene protocolo, se lo ponemos
-                            if (!link.startsWith('http')) {
-                                link = `${baseUrl}/${link.replace(/^\//, '')}`;
-                            }
-                            
-                            // Filtros de basura
-                            if (!link.match(/\.(jpg|png|css|json|xml)$/i)) {
-                                urls.push(link);
-                            }
+                            if (link.startsWith('/')) link = `${baseUrl}${link}`;
+                            if (!link.startsWith('http')) link = `${baseUrl}/${link.replace(/^\//, '')}`;
+                            if (!link.match(/\.(jpg|png|css|json|xml)$/i)) urls.push(link);
                         });
 
                         if (urls.length > 0) {
@@ -73,7 +59,6 @@ export default async function handler(req, res) {
             }
         }
 
-        // --- PLAN B: SERPER (Solo si falló A) ---
         if (urls.length === 0) {
             logs.push("[PLAN A FALLIDO] Activando Google Search (Serper)...");
             const apiKey = process.env.SERPER_API_KEY;
@@ -96,10 +81,7 @@ export default async function handler(req, res) {
             }
         }
 
-        // Limpieza final: Solo URLs del dominio y máximo 50
-        urls = [...new Set(urls)]
-            .filter(u => u.includes(domain))
-            .slice(0, 50);
+        urls = [...new Set(urls)].filter(u => u.includes(domain)).slice(0, 50);
 
         return res.status(200).json({ 
             success: true, 
