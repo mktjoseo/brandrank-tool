@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BrandRank AI - Semantic Audit</title>
+    
+    <link rel="icon" type="image/png" href="/assets/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+    <link rel="shortcut icon" href="/assets/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png" />
+    <link rel="manifest" href="/assets/site.webmanifest" />
+
     <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -22,63 +29,59 @@
     </script>
     
     <style>
-        /* Fondo moderno con puntos */
         body { 
             background-color: #020204; 
             color: #e5e5e5; 
-            background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
             background-size: 24px 24px;
         }
         
-        .glass-panel { background: rgba(10, 10, 12, 0.7); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.05); }
+        .glass-panel { background: rgba(10, 10, 12, 0.8); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.05); }
         .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
 
-        /* --- ANIMATED GLOW BORDER --- */
-        @property --bg-angle {
-            syntax: '<angle>';
-            inherits: true;
-            initial-value: 0deg;
-        }
-        @keyframes spin-bg { to { --bg-angle: 360deg; } }
-        
+        /* --- PREMIUM HOVER GLOW --- */
         .glow-card {
-            position: relative;
+            background: #0a0a0c;
             border-radius: 1rem;
-            z-index: 1;
-            padding: 2px; /* Ancho del borde animado */
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
         }
-        /* El borde luminoso */
-        .glow-card::before, .glow-card::after {
+        
+        .glow-card:hover {
+            border-color: var(--glow-color);
+            box-shadow: 0 0 30px -5px var(--glow-color);
+            transform: translateY(-4px);
+            z-index: 10;
+        }
+
+        /* Degradado interno sutil */
+        .glow-card::before {
             content: '';
             position: absolute;
             inset: 0;
-            z-index: -1;
-            background: conic-gradient(from var(--bg-angle), transparent 40%, var(--glow-color, #333) 100%);
             border-radius: inherit;
-            animation: spin-bg 4s linear infinite;
+            background: radial-gradient(circle at top right, var(--glow-color), transparent 70%);
+            opacity: 0;
+            transition: opacity 0.4s ease;
+            pointer-events: none;
+            mix-blend-mode: overlay;
         }
-        /* El resplandor (blur) */
-        .glow-card::after {
-            filter: blur(12px);
-            opacity: 0.8;
-        }
-        /* El interior oscuro de la tarjeta */
-        .inner-card {
-            background: #0a0a0c;
-            border-radius: calc(1rem - 2px);
-            height: 100%;
-            width: 100%;
-            position: relative;
-            z-index: 2;
+
+        .glow-card:hover::before {
+            opacity: 0.15;
         }
     </style>
 </head>
 <body class="h-screen flex flex-col font-sans selection:bg-neon-pink selection:text-white overflow-hidden">
     
     <nav class="w-full h-16 px-8 flex justify-between items-center glass-panel z-50 shrink-0 border-b border-gray-800">
-        <h1 class="text-xl font-black tracking-tighter text-white">BRAND<span class="text-neon-pink">RANK</span></h1>
+        <h1 class="text-xl font-black tracking-tighter text-white flex items-center gap-2">
+            <img src="/assets/brand-rank-wide-logo.svg" alt="Logo" class="h-6" onerror="this.style.display='none'">
+            BRAND<span class="text-neon-pink">RANK</span>
+        </h1>
         <button onclick="downloadExcelReport()" id="download-btn" class="hidden text-xs flex items-center gap-2 px-4 py-2 rounded bg-neon-green/10 border border-neon-green/50 hover:bg-neon-green/20 text-neon-green font-bold transition-all shadow-[0_0_10px_rgba(0,255,157,0.2)]">
             <i class="ph-fill ph-microsoft-excel-logo text-lg"></i> EXPORT XLS
         </button>
@@ -114,66 +117,49 @@
                 <section id="step-results" class="hidden w-full max-w-7xl mx-auto flex flex-col gap-8">
                     
                     <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                        
-                        <div class="glow-card" style="--glow-color: #00f3ff;">
-                            <div class="inner-card p-6 flex flex-col justify-center">
-                                <div class="flex items-center gap-2 text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">
-                                    SITE FOCUS 
-                                    <i class="ph-fill ph-info cursor-help text-neon-blue hover:text-white transition-colors" title="Mide la concentración semántica. Cercano a 1 = Todo el sitio habla de un mismo tema central."></i>
-                                </div>
-                                <div id="val-focus" class="text-4xl font-black text-white font-mono drop-shadow-[0_0_8px_rgba(0,243,255,0.5)]">--</div>
+                        <div class="glow-card p-6 flex flex-col justify-center" style="--glow-color: #00f3ff;">
+                            <div class="flex items-center gap-2 text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">
+                                SITE FOCUS 
+                                <i class="ph-fill ph-info cursor-help text-neon-blue hover:text-white transition-colors" title="Mide la concentración semántica. Cercano a 1 = Todo el sitio habla de un mismo tema central."></i>
                             </div>
+                            <div id="val-focus" class="text-4xl font-black text-white font-mono drop-shadow-[0_0_8px_rgba(0,243,255,0.5)]">--</div>
                         </div>
 
-                        <div class="glow-card" style="--glow-color: #bd00ff;">
-                            <div class="inner-card p-6 flex flex-col justify-center">
-                                <div class="flex items-center gap-2 text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">
-                                    RADIUS (σ)
-                                    <i class="ph-fill ph-info cursor-help text-neon-purple hover:text-white transition-colors" title="Dispersión temática. Un número bajo (cercano a 0) es mejor. Un número alto indica contenido basura o 'outliers'."></i>
-                                </div>
-                                <div id="val-radius" class="text-4xl font-black text-white font-mono drop-shadow-[0_0_8px_rgba(189,0,255,0.5)]">--</div>
+                        <div class="glow-card p-6 flex flex-col justify-center" style="--glow-color: #bd00ff;">
+                            <div class="flex items-center gap-2 text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">
+                                RADIUS (σ)
+                                <i class="ph-fill ph-info cursor-help text-neon-purple hover:text-white transition-colors" title="Dispersión temática. Un número bajo es mejor. Indica que no hay páginas 'basura' o fuera de tema."></i>
                             </div>
+                            <div id="val-radius" class="text-4xl font-black text-white font-mono drop-shadow-[0_0_8px_rgba(189,0,255,0.5)]">--</div>
                         </div>
 
-                        <div class="glow-card" style="--glow-color: #00ff9d;">
-                            <div class="inner-card p-6 flex flex-col justify-center">
-                                <div class="flex items-center gap-2 text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">
-                                    COHERENCE RATIO
-                                    <i class="ph-fill ph-info cursor-help text-neon-green hover:text-white transition-colors" title="% de URLs que superan el umbral mínimo de calidad semántica con el resto del sitio."></i>
-                                </div>
-                                <div id="val-ratio" class="text-4xl font-black text-white font-mono drop-shadow-[0_0_8px_rgba(0,255,157,0.5)]">--</div>
+                        <div class="glow-card p-6 flex flex-col justify-center" style="--glow-color: #00ff9d;">
+                            <div class="flex items-center gap-2 text-xs text-gray-400 uppercase font-bold tracking-widest mb-2">
+                                COHERENCE RATIO
+                                <i class="ph-fill ph-info cursor-help text-neon-green hover:text-white transition-colors" title="% de URLs que superan el umbral mínimo de calidad semántica con el resto del sitio."></i>
                             </div>
+                            <div id="val-ratio" class="text-4xl font-black text-white font-mono drop-shadow-[0_0_8px_rgba(0,255,157,0.5)]">--</div>
                         </div>
 
-                        <div id="verdict-wrapper" class="glow-card" style="--glow-color: #333;">
-                            <div class="inner-card p-6 flex flex-col justify-center items-center text-center">
-                                <div class="text-xs text-gray-500 uppercase tracking-widest mb-2 font-bold">VERDICT</div>
-                                <div id="final-verdict" class="text-3xl font-black text-gray-400 font-mono tracking-tight uppercase">--</div>
-                            </div>
+                        <div id="verdict-wrapper" class="glow-card p-6 flex flex-col justify-center items-center text-center" style="--glow-color: #333;">
+                            <div class="text-xs text-gray-500 uppercase tracking-widest mb-2 font-bold">VERDICT</div>
+                            <div id="final-verdict" class="text-3xl font-black text-gray-400 font-mono tracking-tight uppercase">--</div>
                         </div>
-
                     </div>
 
                     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        
-                        <div class="lg:col-span-8 glow-card" style="--glow-color: rgba(255,255,255,0.1);">
-                            <div class="inner-card p-4 h-[500px] relative">
-                                <div class="absolute top-4 left-4 text-xs font-mono text-gray-500 z-10 flex items-center gap-2">
-                                    <i class="ph-fill ph-chart-scatter"></i> VECTOR SPACE (PCA)
-                                </div>
-                                <canvas id="scatterChart"></canvas>
+                        <div class="lg:col-span-8 glow-card p-4 h-[500px] relative" style="--glow-color: #ffffff;">
+                            <div class="absolute top-4 left-4 text-xs font-mono text-gray-500 z-10 flex items-center gap-2">
+                                <i class="ph-fill ph-chart-scatter"></i> VECTOR SPACE (PCA)
                             </div>
+                            <canvas id="scatterChart"></canvas>
                         </div>
 
-                        <div class="lg:col-span-4 glow-card" style="--glow-color: #ff007f;">
-                            <div class="inner-card p-6 flex flex-col">
-                                <h3 class="text-sm font-bold text-white uppercase mb-4 border-b border-gray-800 pb-3 flex items-center gap-2 tracking-widest">
-                                    <i class="ph-fill ph-sparkle text-neon-pink"></i> Perfil de Entidad
-                                </h3>
-                                <div id="ai-summary" class="text-gray-300 text-sm flex-grow overflow-y-auto custom-scroll font-sans leading-relaxed whitespace-pre-wrap">
-                                    Esperando datos para análisis semántico...
-                                </div>
-                            </div>
+                        <div class="lg:col-span-4 glow-card p-6 flex flex-col" style="--glow-color: #ff007f;">
+                            <h3 class="text-sm font-bold text-white uppercase mb-4 border-b border-gray-800 pb-3 flex items-center gap-2 tracking-widest">
+                                <i class="ph-fill ph-sparkle text-neon-pink"></i> Perfil de Entidad
+                            </h3>
+                            <div id="ai-summary" class="text-gray-300 text-sm flex-grow overflow-y-auto custom-scroll font-sans leading-relaxed whitespace-pre-wrap">Esperando datos...</div>
                         </div>
                     </div>
 

@@ -1,7 +1,6 @@
 const fetch = require('node-fetch');
 
 export default async function handler(req, res) {
-    // 1. CORS Headers
     res.setHeader('Access-Control-Allow-Credentials', true);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -16,9 +15,9 @@ export default async function handler(req, res) {
     if (!geminiKey) return res.status(500).json({ error: 'Falta API Key de Gemini en Vercel' });
 
     try {
-        const genUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+        // SOLUCIÓN: Usamos el modelo 2.5-flash que sí está en tu lista permitida
+        const genUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
         
-        // Prompt para la IA
         const prompt = `Actúa como un experto en SEO semántico. He analizado la web '${domain}'. 
         Aquí tienes los Títulos y H1 de sus páginas principales:
         

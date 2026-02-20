@@ -94,6 +94,7 @@ async function generateEntityProfile(results) {
         const data = await res.json();
         if(data.success) {
             document.getElementById('ai-summary').innerHTML = `<p class="text-white">${data.summary.replace(/\n\n/g, '</p><br><p class="text-gray-400">')}</p>`;
+            log("✅ Perfil de Entidad generado correctamente.", 'process');
         } else {
             document.getElementById('ai-summary').innerText = `Error: ${data.error}`;
             log(`❌ Error IA: ${data.error}`, 'error');
@@ -138,7 +139,6 @@ function renderDashboard() {
     document.getElementById('val-ratio').innerText = state.metrics.ratio + '%';
     document.getElementById('val-radius').innerText = state.metrics.radius;
 
-    // --- Dynamic Glow for Verdict ---
     const vCard = document.getElementById('final-verdict');
     const vWrapper = document.getElementById('verdict-wrapper');
     
@@ -225,15 +225,38 @@ function renderChart() {
 
 function downloadExcelReport() {
     if (!window.XLSX) return;
-    const ws1 = XLSX.utils.aoa_to_sheet([["BrandRank Report"], ["Focus", state.metrics.focus], ["Ratio", state.metrics.ratio+"%"]]);
+    
+    const verdict = document.getElementById('final-verdict').innerText || "N/A";
+    const aiSummary = document.getElementById('ai-summary').innerText || "Sin resumen";
+
+    // Primera Hoja: Resumen General
+    const ws1 = XLSX.utils.aoa_to_sheet([
+        ["BrandRank - Auditoría Semántica"],
+        [],
+        ["MÉTRICAS GLOBALES"],
+        ["Dominio analizado", state.domain],
+        ["Site Focus", state.metrics.focus],
+        ["Radius (σ)", state.metrics.radius],
+        ["Coherence Ratio", state.metrics.ratio + "%"],
+        ["Veredicto Final", verdict],
+        [],
+        ["PERFIL DE ENTIDAD (IA)"],
+        [aiSummary]
+    ]);
+    
+    // Ajustar anchos de columna para lectura fácil
+    ws1['!cols'] = [{ wch: 25 }, { wch: 100 }];
+
+    // Segunda Hoja: Datos de URL
     const ws2 = XLSX.utils.aoa_to_sheet([
         ["URL", "Título", "H1", "H2 (Muestra)", "Fragmento Extraído", "Similitud", "Estado"], 
-        ...state.vectors.map(v => [v.url, v.extracted?.title, v.extracted?.h1, v.extracted?.h2, v.extracted?.snippet, v.sim, v.sim>0.7?"PASS":"FAIL"])
+        ...state.vectors.map(v => [v.url, v.extracted?.title, v.extracted?.h1, v.extracted?.h2, v.extracted?.snippet, v.sim, v.sim>0.7?"PASS":"WARN"])
     ]);
+    
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
-    XLSX.utils.book_append_sheet(wb, ws2, "Detalle");
-    XLSX.writeFile(wb, `brandrank_audit.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws1, "Resumen Global");
+    XLSX.utils.book_append_sheet(wb, ws2, "Detalle URLs");
+    XLSX.writeFile(wb, `${state.domain.replace(/[^a-z0-9]/gi, '_')}_audit.xlsx`);
 }
 
 const handle = document.getElementById('drag-handle');
