@@ -19,21 +19,20 @@ function log(msg, type = 'info') {
 // --- WIDGET MANUAL ---
 async function analyzeManualUrls() {
     const text = document.getElementById('urlInput').value;
-    // Extraer URLs separadas por saltos de línea y limpiar vacías
     const urls = text.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
     
     if (urls.length === 0) return alert("Pega al menos una URL válida que empiece con http:// o https://");
     
     state.urls = urls;
-    state.domain = new URL(urls[0]).hostname; // Tomamos el dominio de la primera URL
+    state.domain = new URL(urls[0]).hostname; 
     
     document.getElementById('step-results').classList.add('hidden');
-    log(`🚀 Iniciando análisis manual de ${urls.length} URLs...`, 'process');
+    log(`🚀 Iniciando análisis de ${urls.length} URLs...`, 'process');
     
     await processUrlBatch(urls);
 }
 
-// --- SITEMAP DISCOVERY (Opcional) ---
+// --- SITEMAP DISCOVERY ---
 async function startDiscovery() {
     const domain = document.getElementById('domainSearchInput').value.trim();
     if (!domain) return alert("Escribe un dominio para buscar");
@@ -46,9 +45,8 @@ async function startDiscovery() {
         if (data.debugLogs) data.debugLogs.forEach(l => log(`SERVER: ${l}`, 'data'));
         if (!data.success) throw new Error(data.error);
         
-        // Ponemos las URLs en el Textarea para que el usuario las vea
         document.getElementById('urlInput').value = data.urls.join('\n');
-        log(`✅ Se encontraron ${data.urls.length} URLs. Dale a 'Analizar URLs' para continuar.`, 'process');
+        log(`✅ Se encontraron ${data.urls.length} URLs. Dale a 'Analizar URLs'.`, 'process');
 
     } catch (e) {
         log(`❌ Error de búsqueda: ${e.message}`, 'error');
@@ -73,10 +71,9 @@ async function processUrlBatch(urls) {
         const batchResults = await Promise.all(promises);
         
         batchResults.forEach(data => {
-            if (data.success) {
+            if (data.success && data.data) {
                 results.push(data.data);
-                const snippet = data.data.debug_text.substring(0, 80).replace(/\n/g, ' ');
-                log(`📄 OK [${data.data.url.split('/').pop() || 'home'}]: ${snippet}...`, 'data');
+                log(`📄 OK [${data.data.url.split('/').pop() || 'home'}]: Categorizado como "${data.data.topic}"`, 'data');
             } else {
                 log(`⚠️ Fallo en URL: ${data.error}`, 'error');
             }
@@ -87,7 +84,7 @@ async function processUrlBatch(urls) {
         processMetrics(results);
         renderDashboard();
     } else {
-        log("❌ Ninguna URL pudo ser analizada. Revisa la API Key.", 'error');
+        log("❌ Ninguna URL pudo ser analizada.", 'error');
     }
 }
 
@@ -134,20 +131,33 @@ function renderDashboard() {
     document.getElementById('val-ratio').innerText = state.metrics.ratio + '%';
     document.getElementById('val-radius').innerText = state.metrics.radius;
     
+    // Mostramos el Top Topic calculado por la IA
     const topTopic = Object.keys(state.topics).sort((a,b) => state.topics[b]-state.topics[a])[0] || 'Varios';
-    document.getElementById('ai-summary').innerText = `Dominio: ${state.domain}\nTema Principal: ${topTopic}\nCoherencia Semántica: ${state.metrics.ratio}%`;
+    document.getElementById('ai-summary').innerText = `Dominio: ${state.domain}\nEntidad Dominante: ${topTopic}\nCoherencia Semántica: ${state.metrics.ratio}%`;
 
     const tbody = document.getElementById('results-table-body');
     tbody.innerHTML = '';
+    
     state.vectors.sort((a,b) => b.sim - a.sim).forEach(v => {
         const color = v.sim > 0.7 ? 'text-neon-green' : (v.sim > 0.5 ? 'text-yellow-400' : 'text-red-500');
         const status = v.sim > 0.7 ? 'PASS' : 'WARN';
+        
+        // TRANSPARENCIA: Pintamos los datos exactos que leyó el scraper (como en Colab)
         tbody.innerHTML += `
-        <tr class="border-b border-gray-800 hover:bg-white/5">
-            <td class="p-3 pl-2 truncate max-w-[200px]" title="${v.url}"><a href="${v.url}" target="_blank" class="text-gray-400 hover:text-white">${v.url}</a></td>
-            <td class="text-center text-xs uppercase text-gray-500">${v.topic}</td>
-            <td class="text-right font-mono text-white">${v.sim.toFixed(3)}</td>
-            <td class="text-right pr-2 font-bold text-xs ${color}">${status}</td>
+        <tr class="border-b border-gray-800 hover:bg-white/5 align-top">
+            <td class="p-4 pl-2">
+                <a href="${v.url}" target="_blank" class="text-neon-pink hover:text-white text-xs font-mono break-all inline-block mb-2">${v.url.replace(state.domain, '') || '/home'}</a>
+                <div class="text-sm text-white font-bold mb-1 leading-tight">${v.extracted?.title || 'Sin Título'}</div>
+                <div class="text-xs text-gray-500 font-sans"><span class="text-gray-700 font-mono">H1:</span> ${v.extracted?.h1 || 'Sin H1'}</div>
+            </td>
+            <td class="p-4 text-xs text-gray-400 leading-relaxed font-sans max-w-[300px]">
+                <div class="line-clamp-3" title="${v.extracted?.snippet}">${v.extracted?.snippet || 'Sin Snippet'}</div>
+            </td>
+            <td class="p-4 text-center">
+                <span class="inline-block px-2 py-1 bg-white/5 rounded text-xs font-bold text-neon-blue uppercase tracking-wider border border-neon-blue/20">${v.topic}</span>
+            </td>
+            <td class="p-4 text-right font-mono text-white text-base">${v.sim.toFixed(3)}</td>
+            <td class="p-4 text-right pr-2 font-bold text-xs ${color}">${status}</td>
         </tr>`;
     });
 
@@ -185,7 +195,10 @@ function renderChart() {
 function downloadExcelReport() {
     if (!window.XLSX) return;
     const ws1 = XLSX.utils.aoa_to_sheet([["BrandRank Report"], ["Focus", state.metrics.focus], ["Ratio", state.metrics.ratio+"%"]]);
-    const ws2 = XLSX.utils.aoa_to_sheet([["URL","Topic","Sim","Status"], ...state.vectors.map(v => [v.url, v.topic, v.sim, v.sim>0.7?"PASS":"FAIL"])]);
+    const ws2 = XLSX.utils.aoa_to_sheet([
+        ["URL", "Título Extraído", "H1 Extraído", "Tema IA", "Similitud", "Estado"], 
+        ...state.vectors.map(v => [v.url, v.extracted?.title, v.extracted?.h1, v.topic, v.sim, v.sim>0.7?"PASS":"FAIL"])
+    ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
     XLSX.utils.book_append_sheet(wb, ws2, "Detalle");

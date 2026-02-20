@@ -2,7 +2,6 @@ const cheerio = require('cheerio');
 const fetch = require('node-fetch');
 
 const API_VERSION = "v1beta";
-// CLAVE 1: Modelo idéntico al que funcionó en Colab
 const EMBEDDING_MODEL = "gemini-embedding-001"; 
 const GENERATIVE_MODEL = "gemini-1.5-flash";   
 
@@ -21,7 +20,7 @@ export default async function handler(req, res) {
     if (!scraperKey || !geminiKey) return res.status(500).json({ error: 'Faltan API Keys' });
 
     try {
-        // --- 1. SCRAPING (Clon de Python: descargar_y_parsear) ---
+        // --- 1. SCRAPING (Extracción Transparente) ---
         const scraperUrl = `http://api.scraperapi.com?api_key=${scraperKey}&url=${encodeURIComponent(url)}&render=false`;
         const scrapeRes = await fetch(scraperUrl);
         if (!scrapeRes.ok) throw new Error(`Scraper status: ${scrapeRes.status}`);
@@ -29,23 +28,19 @@ export default async function handler(req, res) {
         const html = await scrapeRes.text();
         const $ = cheerio.load(html);
 
-        // Extracción idéntica al Colab
         const title = $('title').text().trim() || 'Sin título';
-        const h1 = $('h1').first().text().trim() || '';
+        const h1 = $('h1').first().text().trim() || 'Sin H1';
         
         let snippet = '';
         $('p').each((i, el) => {
-            // Limpiamos los espacios múltiples
             const texto = $(el).text().replace(/\s+/g, ' ').trim();
-            // Lógica: Si el párrafo tiene más de 80 chars, lo guardamos y rompemos el bucle
             if (texto.length > 80 && !snippet) {
                 snippet = texto;
             }
         });
+        if (!snippet) snippet = "No se encontró texto descriptivo largo.";
 
-        // Combinamos la info para la IA (Title > H1 > Snippet)
         const textToAnalyze = `Title: ${title}\nH1: ${h1}\nSnippet: ${snippet}`.trim();
-
         if (textToAnalyze.length < 20) throw new Error("Contenido vacío (Web bloqueada o puro JS)");
 
         // --- 2. IA (Google AI Studio) ---
@@ -60,28 +55,37 @@ export default async function handler(req, res) {
             return data;
         };
 
-        // A) VECTORES (Usando el modelo 001 del Colab)
+        // A) VECTORES (Embedding 001)
         const embedUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${EMBEDDING_MODEL}:embedContent?key=${geminiKey}`;
         const embedData = await callGoogle(embedUrl, {
-            // Importante: El modelo 001 requiere que especifiquemos el modelo dentro del body también
             model: `models/${EMBEDDING_MODEL}`,
             content: { parts: [{ text: textToAnalyze }] },
             taskType: "SEMANTIC_SIMILARITY" 
         });
 
-        if (!embedData.embedding || !embedData.embedding.values) {
-            throw new Error("Google devolvió un objeto sin valores de vector.");
-        }
-
-        // B) CLASIFICACIÓN (Resumen corto)
+        // B) CLASIFICACIÓN (Mejorado con JSON Forzado)
         let aiData = { topic: "General", summary: title };
         try {
             const genUrl = `https://generativelanguage.googleapis.com/${API_VERSION}/models/${GENERATIVE_MODEL}:generateContent?key=${geminiKey}`;
-            const prompt = `Analiza este extracto web: ${textToAnalyze}. Responde SOLO un JSON válido: {"topic": "Tema Principal (1-2 palabras)", "summary": "Resumen muy breve (1 linea)"}`;
-            const genData = await callGoogle(genUrl, { contents: [{ parts: [{ text: prompt }] }] });
+            
+            // Prompt mejorado para forzar categorías reales
+            const prompt = `Eres un experto SEO. Analiza este contenido web y categorízalo de forma muy específica (ej: "Música", "Cursos Online", "E-commerce", "Blog Tecnología"). 
+            Contenido: ${textToAnalyze}
+            
+            Responde ÚNICAMENTE usando este esquema JSON exacto:
+            {"topic": "Categoría exacta (1 o 2 palabras máximo)", "summary": "De qué trata la página en 10 palabras"}`;
+
+            const genData = await callGoogle(genUrl, { 
+                contents: [{ parts: [{ text: prompt }] }],
+                // ESTO ES CLAVE: Obligamos a Gemini a devolver JSON nativo sin formato Markdown
+                generationConfig: { responseMimeType: "application/json" }
+            });
+            
             let raw = genData.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (raw) aiData = JSON.parse(raw.replace(/```json|```/g, '').trim());
-        } catch(e) { console.warn("Fallo resumen:", e.message); }
+            if (raw) aiData = JSON.parse(raw.trim());
+        } catch(e) { 
+            console.warn("Fallo resumen:", e.message); 
+        }
 
         return res.status(200).json({
             success: true,
@@ -90,7 +94,12 @@ export default async function handler(req, res) {
                 vector: embedData.embedding.values,
                 topic: aiData.topic,
                 summary: aiData.summary,
-                debug_text: textToAnalyze // Lo pasamos al frontend para el log
+                // Devolvemos la data desglosada para pintarla en la tabla del frontend
+                extracted: {
+                    title: title,
+                    h1: h1,
+                    snippet: snippet
+                }
             }
         });
 
