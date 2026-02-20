@@ -2,8 +2,7 @@ let state = {
     domain: 'Manual Input',
     urls: [],
     vectors: [],
-    metrics: { focus: 0, radius: 0, ratio: 0 },
-    topics: {}
+    metrics: { focus: 0, radius: 0, ratio: 0 }
 };
 
 // --- LOGGING ---
@@ -16,44 +15,37 @@ function log(msg, type = 'info') {
     document.getElementById('terminal-body').scrollTop = document.getElementById('terminal-body').scrollHeight;
 }
 
-// --- WIDGET MANUAL ---
 async function analyzeManualUrls() {
     const text = document.getElementById('urlInput').value;
     const urls = text.split('\n').map(u => u.trim()).filter(u => u.startsWith('http'));
     
-    if (urls.length === 0) return alert("Pega al menos una URL válida que empiece con http:// o https://");
+    if (urls.length === 0) return alert("Pega al menos una URL válida.");
     
     state.urls = urls;
     state.domain = new URL(urls[0]).hostname; 
     
     document.getElementById('step-results').classList.add('hidden');
-    log(`🚀 Iniciando análisis de ${urls.length} URLs...`, 'process');
+    log(`🚀 Iniciando análisis vectorial de ${urls.length} URLs...`, 'process');
     
     await processUrlBatch(urls);
 }
 
-// --- SITEMAP DISCOVERY ---
 async function startDiscovery() {
     const domain = document.getElementById('domainSearchInput').value.trim();
-    if (!domain) return alert("Escribe un dominio para buscar");
+    if (!domain) return;
     
     log(`🔎 Buscando URLs en ${domain}...`, 'process');
     try {
         const res = await fetch(`/api/search?domain=${domain}`);
         const data = await res.json();
-        
         if (data.debugLogs) data.debugLogs.forEach(l => log(`SERVER: ${l}`, 'data'));
         if (!data.success) throw new Error(data.error);
         
         document.getElementById('urlInput').value = data.urls.join('\n');
-        log(`✅ Se encontraron ${data.urls.length} URLs. Dale a 'Analizar URLs'.`, 'process');
-
-    } catch (e) {
-        log(`❌ Error de búsqueda: ${e.message}`, 'error');
-    }
+        log(`✅ Encontradas ${data.urls.length} URLs. Dale a 'CALCULAR'.`, 'process');
+    } catch (e) { log(`❌ Error: ${e.message}`, 'error'); }
 }
 
-// --- ANALYZE BATCH ---
 async function processUrlBatch(urls) {
     const results = [];
     const BATCH_SIZE = 3; 
@@ -73,9 +65,9 @@ async function processUrlBatch(urls) {
         batchResults.forEach(data => {
             if (data.success && data.data) {
                 results.push(data.data);
-                log(`📄 OK [${data.data.url.split('/').pop() || 'home'}]: Categorizado como "${data.data.topic}"`, 'data');
+                log(`📄 Vectorizado: ${new URL(data.data.url).pathname}`, 'data');
             } else {
-                log(`⚠️ Fallo en URL: ${data.error}`, 'error');
+                log(`⚠️ Fallo: ${data.error}`, 'error');
             }
         });
     }
@@ -83,15 +75,37 @@ async function processUrlBatch(urls) {
     if (results.length > 0) {
         processMetrics(results);
         renderDashboard();
+        generateEntityProfile(results); 
     } else {
         log("❌ Ninguna URL pudo ser analizada.", 'error');
     }
 }
 
-// --- MATH & VISUALS ---
+// --- SÚPER RESUMEN IA ---
+async function generateEntityProfile(results) {
+    document.getElementById('ai-summary').innerHTML = '<span class="animate-pulse text-neon-pink">Generando Perfil de Entidad con IA...</span>';
+    
+    const contents = results.map(r => `- ${r.extracted.title} (H1: ${r.extracted.h1})`);
+    
+    try {
+        const res = await fetch('/api/summary', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ domain: state.domain, contents })
+        });
+        const data = await res.json();
+        if(data.success) {
+            document.getElementById('ai-summary').innerText = data.summary;
+        } else {
+            document.getElementById('ai-summary').innerText = "No se pudo generar el resumen.";
+        }
+    } catch(e) {
+        document.getElementById('ai-summary').innerText = "Error conectando con la IA.";
+    }
+}
+
 function processMetrics(data) {
     const dim = data[0].vector.length;
-    
     const centroid = new Array(dim).fill(0);
     data.forEach(d => d.vector.forEach((v, i) => centroid[i] += v));
     centroid.forEach((v, i) => centroid[i] /= data.length);
@@ -100,14 +114,11 @@ function processMetrics(data) {
         let dot = 0, mA = 0, mB = 0;
         for (let i = 0; i < dim; i++) {
             dot += d.vector[i] * centroid[i];
-            mA += d.vector[i] ** 2;
-            mB += centroid[i] ** 2;
+            mA += d.vector[i] ** 2; mB += centroid[i] ** 2;
         }
         const sim = dot / (Math.sqrt(mA) * Math.sqrt(mB));
-        
         const r = (1 - sim) * 4; 
         const angle = Math.random() * Math.PI * 2; 
-
         return { ...d, sim, x: r * Math.cos(angle), y: r * Math.sin(angle) };
     });
 
@@ -118,9 +129,6 @@ function processMetrics(data) {
     
     const variance = sims.reduce((a,b) => a + Math.pow(b - avg, 2), 0) / sims.length;
     state.metrics.radius = Math.sqrt(variance).toFixed(3);
-
-    state.topics = {};
-    state.vectors.forEach(v => state.topics[v.topic] = (state.topics[v.topic]||0)+1);
 }
 
 function renderDashboard() {
@@ -130,10 +138,15 @@ function renderDashboard() {
     document.getElementById('val-focus').innerText = state.metrics.focus;
     document.getElementById('val-ratio').innerText = state.metrics.ratio + '%';
     document.getElementById('val-radius').innerText = state.metrics.radius;
-    
-    // Mostramos el Top Topic calculado por la IA
-    const topTopic = Object.keys(state.topics).sort((a,b) => state.topics[b]-state.topics[a])[0] || 'Varios';
-    document.getElementById('ai-summary').innerText = `Dominio: ${state.domain}\nEntidad Dominante: ${topTopic}\nCoherencia Semántica: ${state.metrics.ratio}%`;
+
+    const vCard = document.getElementById('final-verdict');
+    if(state.metrics.ratio >= 80) {
+        vCard.innerText = "AUTORIDAD"; vCard.className = "text-2xl font-black text-neon-green drop-shadow-[0_0_8px_rgba(0,255,157,0.8)]";
+    } else if(state.metrics.ratio >= 50) {
+        vCard.innerText = "ESTABLE"; vCard.className = "text-2xl font-black text-yellow-400 drop-shadow-[0_0_8px_rgba(253,224,71,0.8)]";
+    } else {
+        vCard.innerText = "DILUIDO"; vCard.className = "text-2xl font-black text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]";
+    }
 
     const tbody = document.getElementById('results-table-body');
     tbody.innerHTML = '';
@@ -142,19 +155,20 @@ function renderDashboard() {
         const color = v.sim > 0.7 ? 'text-neon-green' : (v.sim > 0.5 ? 'text-yellow-400' : 'text-red-500');
         const status = v.sim > 0.7 ? 'PASS' : 'WARN';
         
-        // TRANSPARENCIA: Pintamos los datos exactos que leyó el scraper (como en Colab)
+        let cleanPath = new URL(v.url).pathname;
+        if(cleanPath === '/') cleanPath = 'Home (/)';
+        
+        // Tabla limpia sin la columna Topic
         tbody.innerHTML += `
         <tr class="border-b border-gray-800 hover:bg-white/5 align-top">
             <td class="p-4 pl-2">
-                <a href="${v.url}" target="_blank" class="text-neon-pink hover:text-white text-xs font-mono break-all inline-block mb-2">${v.url.replace(state.domain, '') || '/home'}</a>
-                <div class="text-sm text-white font-bold mb-1 leading-tight">${v.extracted?.title || 'Sin Título'}</div>
-                <div class="text-xs text-gray-500 font-sans"><span class="text-gray-700 font-mono">H1:</span> ${v.extracted?.h1 || 'Sin H1'}</div>
+                <a href="${v.url}" target="_blank" class="text-neon-pink hover:text-white text-xs font-mono break-all inline-block mb-2">${cleanPath}</a>
+                <div class="text-sm text-white font-bold mb-1">${v.extracted?.title}</div>
+                <div class="text-xs text-gray-500 font-mono">H1: ${v.extracted?.h1}</div>
+                <div class="text-xs text-gray-600 font-mono mt-1">H2: ${v.extracted?.h2}</div>
             </td>
-            <td class="p-4 text-xs text-gray-400 leading-relaxed font-sans max-w-[300px]">
-                <div class="line-clamp-3" title="${v.extracted?.snippet}">${v.extracted?.snippet || 'Sin Snippet'}</div>
-            </td>
-            <td class="p-4 text-center">
-                <span class="inline-block px-2 py-1 bg-white/5 rounded text-xs font-bold text-neon-blue uppercase tracking-wider border border-neon-blue/20">${v.topic}</span>
+            <td class="p-4 text-xs text-gray-400 leading-relaxed font-sans">
+                <div class="line-clamp-4" title="${v.extracted?.snippet}">${v.extracted?.snippet}</div>
             </td>
             <td class="p-4 text-right font-mono text-white text-base">${v.sim.toFixed(3)}</td>
             <td class="p-4 text-right pr-2 font-bold text-xs ${color}">${status}</td>
@@ -165,7 +179,6 @@ function renderDashboard() {
     document.getElementById('step-results').scrollIntoView({behavior:'smooth'});
 }
 
-// --- CHART JS ---
 let chartInstance = null;
 function renderChart() {
     const ctx = document.getElementById('scatterChart');
@@ -186,18 +199,30 @@ function renderChart() {
         options: {
             responsive: true, maintainAspectRatio: false,
             scales: { x: {display:false, min:-3, max:3}, y: {display:false, min:-3, max:3} },
-            plugins: { legend: {display:false}, tooltip: { callbacks: { label: (ctx) => ctx.raw.x===0 ? 'Centro' : `${ctx.raw.topic}: ${(ctx.raw.sim*100).toFixed(1)}%` } } }
+            plugins: { 
+                legend: {display:false}, 
+                tooltip: { 
+                    callbacks: { 
+                        // AQUÍ ESTÁ EL ARREGLO DEL TOOLTIP PARA MOSTRAR LA RUTA DE LA URL
+                        label: (ctx) => {
+                            if (ctx.raw.x === 0) return 'Centro Ideal';
+                            let path = new URL(ctx.raw.url).pathname;
+                            if (path === '/') path = 'Home (/)';
+                            return `${path} | Similitud: ${(ctx.raw.sim*100).toFixed(1)}%`;
+                        } 
+                    } 
+                } 
+            }
         }
     });
 }
 
-// --- EXCEL ---
 function downloadExcelReport() {
     if (!window.XLSX) return;
     const ws1 = XLSX.utils.aoa_to_sheet([["BrandRank Report"], ["Focus", state.metrics.focus], ["Ratio", state.metrics.ratio+"%"]]);
     const ws2 = XLSX.utils.aoa_to_sheet([
-        ["URL", "Título Extraído", "H1 Extraído", "Tema IA", "Similitud", "Estado"], 
-        ...state.vectors.map(v => [v.url, v.extracted?.title, v.extracted?.h1, v.topic, v.sim, v.sim>0.7?"PASS":"FAIL"])
+        ["URL", "Título", "H1", "H2 (Muestra)", "Fragmento Extraído", "Similitud", "Estado"], 
+        ...state.vectors.map(v => [v.url, v.extracted?.title, v.extracted?.h1, v.extracted?.h2, v.extracted?.snippet, v.sim, v.sim>0.7?"PASS":"FAIL"])
     ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws1, "Resumen");
@@ -205,7 +230,6 @@ function downloadExcelReport() {
     XLSX.writeFile(wb, `brandrank_audit.xlsx`);
 }
 
-// DRAG CONSOLE
 const handle = document.getElementById('drag-handle');
 const footer = document.getElementById('console-footer');
 if(handle && footer) {
