@@ -5,7 +5,6 @@ let state = {
     metrics: { focus: 0, radius: 0, ratio: 0 }
 };
 
-// --- LOGGING ---
 const consoleOutput = document.getElementById('console-output');
 function log(msg, type = 'info') {
     if (!consoleOutput) return;
@@ -81,9 +80,8 @@ async function processUrlBatch(urls) {
     }
 }
 
-// --- SÚPER RESUMEN IA ---
 async function generateEntityProfile(results) {
-    document.getElementById('ai-summary').innerHTML = '<span class="animate-pulse text-neon-pink">Generando Perfil de Entidad con IA...</span>';
+    document.getElementById('ai-summary').innerHTML = '<div class="animate-pulse text-neon-pink flex items-center gap-2"><i class="ph ph-spinner-gap animate-spin text-xl"></i> Redactando perfil de entidad...</div>';
     
     const contents = results.map(r => `- ${r.extracted.title} (H1: ${r.extracted.h1})`);
     
@@ -95,12 +93,13 @@ async function generateEntityProfile(results) {
         });
         const data = await res.json();
         if(data.success) {
-            document.getElementById('ai-summary').innerText = data.summary;
+            document.getElementById('ai-summary').innerHTML = `<p class="text-white">${data.summary.replace(/\n\n/g, '</p><br><p class="text-gray-400">')}</p>`;
         } else {
-            document.getElementById('ai-summary').innerText = "No se pudo generar el resumen.";
+            document.getElementById('ai-summary').innerText = `Error: ${data.error}`;
+            log(`❌ Error IA: ${data.error}`, 'error');
         }
     } catch(e) {
-        document.getElementById('ai-summary').innerText = "Error conectando con la IA.";
+        document.getElementById('ai-summary').innerText = "Fallo de conexión con la IA.";
     }
 }
 
@@ -139,39 +138,47 @@ function renderDashboard() {
     document.getElementById('val-ratio').innerText = state.metrics.ratio + '%';
     document.getElementById('val-radius').innerText = state.metrics.radius;
 
+    // --- Dynamic Glow for Verdict ---
     const vCard = document.getElementById('final-verdict');
+    const vWrapper = document.getElementById('verdict-wrapper');
+    
     if(state.metrics.ratio >= 80) {
-        vCard.innerText = "AUTORIDAD"; vCard.className = "text-2xl font-black text-neon-green drop-shadow-[0_0_8px_rgba(0,255,157,0.8)]";
+        vCard.innerText = "AUTHORITY"; 
+        vCard.className = "text-3xl font-black text-neon-green tracking-tighter drop-shadow-[0_0_10px_rgba(0,255,157,0.8)]";
+        vWrapper.style.setProperty('--glow-color', '#00ff9d');
     } else if(state.metrics.ratio >= 50) {
-        vCard.innerText = "ESTABLE"; vCard.className = "text-2xl font-black text-yellow-400 drop-shadow-[0_0_8px_rgba(253,224,71,0.8)]";
+        vCard.innerText = "STABLE"; 
+        vCard.className = "text-3xl font-black text-neon-yellow tracking-tighter drop-shadow-[0_0_10px_rgba(253,224,71,0.8)]";
+        vWrapper.style.setProperty('--glow-color', '#fde047');
     } else {
-        vCard.innerText = "DILUIDO"; vCard.className = "text-2xl font-black text-red-500 drop-shadow-[0_0_8px_rgba(239,68,68,0.8)]";
+        vCard.innerText = "DILUTED"; 
+        vCard.className = "text-3xl font-black text-neon-pink tracking-tighter drop-shadow-[0_0_10px_rgba(255,0,127,0.8)]";
+        vWrapper.style.setProperty('--glow-color', '#ff007f');
     }
 
     const tbody = document.getElementById('results-table-body');
     tbody.innerHTML = '';
     
     state.vectors.sort((a,b) => b.sim - a.sim).forEach(v => {
-        const color = v.sim > 0.7 ? 'text-neon-green' : (v.sim > 0.5 ? 'text-yellow-400' : 'text-red-500');
+        const color = v.sim > 0.7 ? 'text-neon-green' : (v.sim > 0.5 ? 'text-neon-yellow' : 'text-neon-pink');
         const status = v.sim > 0.7 ? 'PASS' : 'WARN';
         
         let cleanPath = new URL(v.url).pathname;
         if(cleanPath === '/') cleanPath = 'Home (/)';
         
-        // Tabla limpia sin la columna Topic
         tbody.innerHTML += `
-        <tr class="border-b border-gray-800 hover:bg-white/5 align-top">
-            <td class="p-4 pl-2">
-                <a href="${v.url}" target="_blank" class="text-neon-pink hover:text-white text-xs font-mono break-all inline-block mb-2">${cleanPath}</a>
-                <div class="text-sm text-white font-bold mb-1">${v.extracted?.title}</div>
-                <div class="text-xs text-gray-500 font-mono">H1: ${v.extracted?.h1}</div>
-                <div class="text-xs text-gray-600 font-mono mt-1">H2: ${v.extracted?.h2}</div>
+        <tr class="hover:bg-white/5 transition-colors align-top group">
+            <td class="py-5 pl-6">
+                <a href="${v.url}" target="_blank" class="text-neon-blue group-hover:text-white text-xs font-mono break-all inline-block mb-2 transition-colors">${cleanPath}</a>
+                <div class="text-sm text-white font-bold mb-1 leading-snug">${v.extracted?.title}</div>
+                <div class="text-xs text-gray-500 font-mono"><span class="text-gray-700">H1:</span> ${v.extracted?.h1}</div>
+                <div class="text-xs text-gray-600 font-mono mt-1"><span class="text-gray-700">H2:</span> ${v.extracted?.h2}</div>
             </td>
-            <td class="p-4 text-xs text-gray-400 leading-relaxed font-sans">
+            <td class="py-5 text-xs text-gray-400 leading-relaxed font-sans pr-4">
                 <div class="line-clamp-4" title="${v.extracted?.snippet}">${v.extracted?.snippet}</div>
             </td>
-            <td class="p-4 text-right font-mono text-white text-base">${v.sim.toFixed(3)}</td>
-            <td class="p-4 text-right pr-2 font-bold text-xs ${color}">${status}</td>
+            <td class="py-5 text-right font-mono text-white text-base">${v.sim.toFixed(3)}</td>
+            <td class="py-5 text-right pr-6 font-bold text-xs ${color}">${status}</td>
         </tr>`;
     });
 
@@ -185,7 +192,7 @@ function renderChart() {
     if (!ctx) return;
     if (chartInstance) chartInstance.destroy();
 
-    const colors = state.vectors.map(v => v.sim > 0.7 ? '#00ff9d' : (v.sim > 0.5 ? '#ffee00' : '#ff0055'));
+    const colors = state.vectors.map(v => v.sim > 0.7 ? '#00ff9d' : (v.sim > 0.5 ? '#fde047' : '#ff007f'));
 
     chartInstance = new Chart(ctx, {
         type: 'scatter',
@@ -193,7 +200,7 @@ function renderChart() {
             datasets: [{
                 label: 'URLs', data: state.vectors, backgroundColor: colors, pointRadius: 6, pointHoverRadius: 10, pointBorderColor: 'rgba(0,0,0,0.5)', pointBorderWidth: 1
             }, {
-                label: 'Centro', data: [{x:0, y:0}], pointRadius: 15, pointStyle: 'crossRot', borderColor: 'white', borderWidth: 2, backgroundColor: 'rgba(255,255,255,0.1)'
+                label: 'Centro', data: [{x:0, y:0}], pointRadius: 15, pointStyle: 'crossRot', borderColor: 'rgba(255,255,255,0.8)', borderWidth: 2, backgroundColor: 'rgba(255,255,255,0.1)'
             }]
         },
         options: {
@@ -203,7 +210,6 @@ function renderChart() {
                 legend: {display:false}, 
                 tooltip: { 
                     callbacks: { 
-                        // AQUÍ ESTÁ EL ARREGLO DEL TOOLTIP PARA MOSTRAR LA RUTA DE LA URL
                         label: (ctx) => {
                             if (ctx.raw.x === 0) return 'Centro Ideal';
                             let path = new URL(ctx.raw.url).pathname;
