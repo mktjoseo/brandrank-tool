@@ -15,18 +15,20 @@ export default async function handler(req, res) {
     if (!geminiKey) return res.status(500).json({ error: 'Falta API Key de Gemini en Vercel' });
 
     try {
-        // SOLUCIÓN: Usamos el modelo 2.5-flash que sí está en tu lista permitida
         const genUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`;
         
-        const prompt = `Actúa como un experto en SEO semántico. He analizado la web '${domain}'. 
-        Aquí tienes los Títulos y H1 de sus páginas principales:
-        
+        // ---> AQUÍ ES DONDE SE MODIFICA EL PROMPT DE LA IA <---
+        const prompt = `Actúa como un analista SEO estricto y directo. He analizado la web '${domain}'. 
+        Títulos y H1:
         ${contents.join('\n')}
         
-        Escribe un "Perfil de Entidad" de 2 párrafos. 
-        Párrafo 1: Define de qué trata exactamente esta web (su entidad principal).
-        Párrafo 2: Evalúa la coherencia semántica de estas URLs. ¿Están alineadas con el tema principal o hay contenido disperso?
-        Usa un tono analítico y profesional. No uses Markdown grueso (ni asteriscos ni negritas), solo texto plano estructurado.`;
+        Escribe un "Perfil de Entidad" ultra conciso. REGLAS ESTRICTAS:
+        - Máximo absoluto de 2 párrafos cortos (2 oraciones por párrafo).
+        - Párrafo 1: Define de qué trata esta web (su entidad).
+        - Párrafo 2: Evalúa la coherencia semántica (¿hay páginas basura o está todo bien focalizado?).
+        - Cero introducciones (no digas "Esta web trata de...", ve directo al grano).
+        - No uses formato markdown.`;
+        // ---> FIN DEL PROMPT <---
 
         const response = await fetch(genUrl, {
             method: 'POST',
@@ -36,11 +38,9 @@ export default async function handler(req, res) {
         
         const data = await response.json();
         
-        if (!response.ok) {
-            throw new Error(data.error?.message || 'Error en Gemini API');
-        }
+        if (!response.ok) throw new Error(data.error?.message || 'Error en Gemini API');
 
-        const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No se pudo generar el texto.";
+        const aiText = data.candidates?.[0]?.content?.parts?.[0]?.text || "No se pudo generar el perfil de entidad.";
 
         return res.status(200).json({ success: true, summary: aiText });
 

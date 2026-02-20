@@ -41,7 +41,6 @@
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
 
-        /* --- PREMIUM HOVER GLOW --- */
         .glow-card {
             background: #0a0a0c;
             border-radius: 1rem;
@@ -57,7 +56,6 @@
             z-index: 10;
         }
 
-        /* Degradado interno sutil */
         .glow-card::before {
             content: '';
             position: absolute;
@@ -77,11 +75,10 @@
 </head>
 <body class="h-screen flex flex-col font-sans selection:bg-neon-pink selection:text-white overflow-hidden">
     
-    <nav class="w-full h-16 px-8 flex justify-between items-center glass-panel z-50 shrink-0 border-b border-gray-800">
-        <h1 class="text-xl font-black tracking-tighter text-white flex items-center gap-2">
-            <img src="/assets/brand-rank-wide-logo.svg" alt="Logo" class="h-6" onerror="this.style.display='none'">
-            BRAND<span class="text-neon-pink">RANK</span>
-        </h1>
+    <nav class="w-full h-20 px-8 flex justify-between items-center glass-panel z-50 shrink-0 border-b border-gray-800">
+        <div class="flex items-center">
+            <img src="/assets/brand-rank-wide-logo.svg" alt="BrandRank Logo" class="h-8 md:h-10 drop-shadow-[0_0_10px_rgba(255,0,127,0.4)]" onerror="this.src=''; this.alt='BRANDRANK'; this.className='text-2xl font-black text-white'">
+        </div>
         <button onclick="downloadExcelReport()" id="download-btn" class="hidden text-xs flex items-center gap-2 px-4 py-2 rounded bg-neon-green/10 border border-neon-green/50 hover:bg-neon-green/20 text-neon-green font-bold transition-all shadow-[0_0_10px_rgba(0,255,157,0.2)]">
             <i class="ph-fill ph-microsoft-excel-logo text-lg"></i> EXPORT XLS
         </button>
@@ -159,7 +156,7 @@
                             <h3 class="text-sm font-bold text-white uppercase mb-4 border-b border-gray-800 pb-3 flex items-center gap-2 tracking-widest">
                                 <i class="ph-fill ph-sparkle text-neon-pink"></i> Perfil de Entidad
                             </h3>
-                            <div id="ai-summary" class="text-gray-300 text-sm flex-grow overflow-y-auto custom-scroll font-sans leading-relaxed whitespace-pre-wrap">Esperando datos...</div>
+                            <div id="ai-summary" class="text-gray-300 text-base flex-grow overflow-y-auto custom-scroll font-sans leading-relaxed whitespace-pre-wrap">Esperando datos...</div>
                         </div>
                     </div>
 

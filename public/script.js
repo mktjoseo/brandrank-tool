@@ -81,8 +81,7 @@ async function processUrlBatch(urls) {
 }
 
 async function generateEntityProfile(results) {
-    document.getElementById('ai-summary').innerHTML = '<div class="animate-pulse text-neon-pink flex items-center gap-2"><i class="ph ph-spinner-gap animate-spin text-xl"></i> Redactando perfil de entidad...</div>';
-    
+    document.getElementById('ai-summary').innerHTML = '<div class="animate-pulse text-neon-pink flex items-center gap-2"><i class="ph ph-spinner-gap animate-spin text-xl"></i> Resumiendo...</div>';
     const contents = results.map(r => `- ${r.extracted.title} (H1: ${r.extracted.h1})`);
     
     try {
@@ -166,19 +165,20 @@ function renderDashboard() {
         let cleanPath = new URL(v.url).pathname;
         if(cleanPath === '/') cleanPath = 'Home (/)';
         
+        // MEJORA DE LEGIBILIDAD DE LA TABLA (Más brillo y tamaño)
         tbody.innerHTML += `
-        <tr class="hover:bg-white/5 transition-colors align-top group">
-            <td class="py-5 pl-6">
-                <a href="${v.url}" target="_blank" class="text-neon-blue group-hover:text-white text-xs font-mono break-all inline-block mb-2 transition-colors">${cleanPath}</a>
-                <div class="text-sm text-white font-bold mb-1 leading-snug">${v.extracted?.title}</div>
-                <div class="text-xs text-gray-500 font-mono"><span class="text-gray-700">H1:</span> ${v.extracted?.h1}</div>
-                <div class="text-xs text-gray-600 font-mono mt-1"><span class="text-gray-700">H2:</span> ${v.extracted?.h2}</div>
+        <tr class="hover:bg-white/5 transition-colors align-top group border-b border-gray-800/50">
+            <td class="py-5 pl-6 pr-4">
+                <a href="${v.url}" target="_blank" class="text-neon-blue group-hover:text-white text-sm font-mono break-all inline-block mb-2 transition-colors">${cleanPath}</a>
+                <div class="text-base text-white font-bold mb-2 leading-snug">${v.extracted?.title}</div>
+                <div class="text-sm text-gray-300 font-mono mb-1"><span class="text-gray-500 font-bold">H1:</span> ${v.extracted?.h1}</div>
+                <div class="text-sm text-gray-400 font-mono mt-1"><span class="text-gray-500 font-bold">H2:</span> ${v.extracted?.h2}</div>
             </td>
-            <td class="py-5 text-xs text-gray-400 leading-relaxed font-sans pr-4">
+            <td class="py-5 text-sm text-gray-300 leading-relaxed font-sans pr-6">
                 <div class="line-clamp-4" title="${v.extracted?.snippet}">${v.extracted?.snippet}</div>
             </td>
-            <td class="py-5 text-right font-mono text-white text-base">${v.sim.toFixed(3)}</td>
-            <td class="py-5 text-right pr-6 font-bold text-xs ${color}">${status}</td>
+            <td class="py-5 text-right font-mono text-white text-lg">${v.sim.toFixed(3)}</td>
+            <td class="py-5 text-right pr-6 font-bold text-sm ${color}">${status}</td>
         </tr>`;
     });
 
@@ -229,7 +229,6 @@ function downloadExcelReport() {
     const verdict = document.getElementById('final-verdict').innerText || "N/A";
     const aiSummary = document.getElementById('ai-summary').innerText || "Sin resumen";
 
-    // Primera Hoja: Resumen General
     const ws1 = XLSX.utils.aoa_to_sheet([
         ["BrandRank - Auditoría Semántica"],
         [],
@@ -244,10 +243,8 @@ function downloadExcelReport() {
         [aiSummary]
     ]);
     
-    // Ajustar anchos de columna para lectura fácil
     ws1['!cols'] = [{ wch: 25 }, { wch: 100 }];
 
-    // Segunda Hoja: Datos de URL
     const ws2 = XLSX.utils.aoa_to_sheet([
         ["URL", "Título", "H1", "H2 (Muestra)", "Fragmento Extraído", "Similitud", "Estado"], 
         ...state.vectors.map(v => [v.url, v.extracted?.title, v.extracted?.h1, v.extracted?.h2, v.extracted?.snippet, v.sim, v.sim>0.7?"PASS":"WARN"])
